@@ -1,4 +1,4 @@
-```yaml
+
 name: Build Cabinet APK
 
 on:
@@ -55,4 +55,3 @@ jobs:
           path: Cabinet/bin/*.apk
           if-no-files-found: error
           retention-days: 7
-```
