@@ -12,10 +12,8 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Checkout Cabinet
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: Cabinet
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,7 +36,13 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
-      - name: Build APK
+      - name: Check project files
+        run: |
+          test -f Cabinet/main.py
+          test -f Cabinet/buildozer.spec
+          echo "Cabinet files found."
+
+      - name: Build Cabinet APK
         working-directory: Cabinet
         run: buildozer -v android debug
 
