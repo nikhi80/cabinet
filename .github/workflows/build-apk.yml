@@ -1,108 +1,33 @@
+
 name: Build Cabinet APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
-
-    env:
-      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROID_SDK: /home/runner/.buildozer/android/platform/android-sdk
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Install Android SDK tools
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          export SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_ROOT/cmdline-tools"
-          cd "$SDK_ROOT/cmdline-tools"
-
-          if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-            unzip -q cmdline-tools.zip
-            rm -f cmdline-tools.zip
-
-            if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
-              rm -rf "$SDK_ROOT/cmdline-tools/latest"
-              mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
-            fi
-          fi
-
-          # Buildozer expects the legacy SDK layout
-          mkdir -p "$SDK_ROOT/tools"
-          ln -sfn "$SDK_ROOT/cmdline-tools/latest/bin" "$SDK_ROOT/tools/bin"
-
-          export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-
-          if [ ! -x "$SDK_ROOT/tools/bin/sdkmanager" ]; then
-            echo "sdkmanager not found"
-            ls -R "$SDK_ROOT" || true
-            exit 1
-          fi
-
-          yes | "$SDK_ROOT/tools/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
-          "$SDK_ROOT/tools/bin/sdkmanager" --sdk_root="$SDK_ROOT" --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
-
-          test -d "$SDK_ROOT/build-tools/34.0.0"
-          test -x "$SDK_ROOT/build-tools/34.0.0/aidl"
-
-      - name: Install Buildozer dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip autoconf libtool \
-            pkg-config zlib1g-dev libncurses5-dev \
-            libncursesw5-dev cmake libffi-dev \
-            libssl-dev automake autopoint gettext
-
-      - name: Install Buildozer
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip setuptools
-          python -m pip install cython==0.29.36 buildozer
-
       - name: Build Cabinet APK
-        working-directory: Cabinet
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
-          export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-          export ANDROID_SDK="$HOME/.buildozer/android/platform/android-sdk"
-          export PATH="$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$HOME/.buildozer/android/platform/android-sdk/platform-tools:$PATH"
-          buildozer -v android debug
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          workdir: Cabinet
+          buildozer_version: stable
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Cabinet-APK
-          path: Cabinet/bin/*.apk
+          path: ${{ steps.buildozer.outputs.filename }}
           if-no-files-found: error
           retention-days: 7
