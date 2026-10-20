@@ -36,20 +36,17 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
-      - name: Check Cabinet files
+      - name: Verify Cabinet configuration
         run: |
           test -f Cabinet/main.py
           test -f Cabinet/buildozer.spec
-          echo "Cabinet files found."
+          grep '^requirements *=' Cabinet/buildozer.spec
 
-      - name: Enable Android SDK license acceptance
-        working-directory: Cabinet
+      - name: Clear Android build cache
         run: |
-          if grep -q '^android.accept_sdk_license' buildozer.spec; then
-            sed -i 's/^android.accept_sdk_license.*/android.accept_sdk_license = True/' buildozer.spec
-          else
-            sed -i '/^\[app\]/a android.accept_sdk_license = True' buildozer.spec
-          fi
+          rm -rf "$HOME/.buildozer"
+          rm -rf Cabinet/.buildozer
+          rm -rf Cabinet/bin
 
       - name: Build Cabinet APK
         working-directory: Cabinet
