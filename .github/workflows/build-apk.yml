@@ -31,9 +31,21 @@ jobs:
       - name: Install Android SDK packages
         shell: bash
         run: |
-          export ANDROID_SDK_ROOT=$ANDROID_HOME
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
+          set -euxo pipefail
+
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+
+          # Ensure the Android command line tools are present before using sdkmanager
+          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "Installing cmdline-tools;latest"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager" --install "cmdline-tools;latest" >/dev/null || true
+          fi
+
+          # Accept licenses and install required components
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
@@ -58,8 +70,8 @@ jobs:
         working-directory: Cabinet
         shell: bash
         run: |
-          export ANDROID_HOME=$ANDROID_HOME
-          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          export ANDROID_HOME="$ANDROID_HOME"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
           buildozer -v android debug
 
       - name: Upload APK
