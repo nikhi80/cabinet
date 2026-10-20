@@ -1,5 +1,6 @@
 
 [app]
+android.accept_sdk_license = True
 title = Cabinet
 package.name = cabinet
 package.domain = org.cabinetapp
