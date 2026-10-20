@@ -20,11 +20,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
 
       - name: Install system dependencies
         run: |
@@ -40,24 +43,16 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install "cython==0.29.36" buildozer
 
-      - name: Accept Android licenses and install Build-Tools
+      - name: Display Android SDK licenses
+        run: sdkmanager --licenses
+
+      - name: Install Android SDK packages
         run: |
-          SDK="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK"
-          if [ ! -f "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "Android SDK command-line tools are missing."
-            exit 1
-          fi
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" \
-            --sdk_root="$SDK" \
-            --licenses || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" \
-            --sdk_root="$SDK" \
-            "platform-tools" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "build-tools;35.0.0"
 
       - name: Build Cabinet APK
         working-directory: Cabinet
-        run: yes | buildozer -v android debug
+        run: buildozer -v android debug
 
       - name: Upload APK
         if: success()
