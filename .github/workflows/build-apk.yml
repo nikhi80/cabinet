@@ -1,3 +1,4 @@
+
 name: Build Cabinet APK
 
 on:
@@ -9,10 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-
-    env:
-      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
 
     steps:
       - name: Checkout repository
@@ -29,6 +26,23 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        run: |
+          echo "Android SDK location: $ANDROID_HOME"
+          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+          echo "Checking for AIDL:"
+          find "$ANDROID_HOME/build-tools" -name aidl -type f
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -43,16 +57,13 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
-      - name: Install Android SDK packages
+      - name: Prepare Buildozer SDK path
         run: |
-          mkdir -p "$ANDROID_HOME"
-          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
-          sdkmanager --sdk_root="$ANDROID_HOME" --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
-          echo "Installed AIDL:"
-          find "$ANDROID_HOME/build-tools" -name aidl -type f
+          mkdir -p "$HOME/.buildozer/android/platform"
+          if [ ! -e "$HOME/.buildozer/android/platform/android-sdk" ]; then
+            ln -s "$ANDROID_HOME" \
+              "$HOME/.buildozer/android/platform/android-sdk"
+          fi
 
       - name: Check project files
         run: |
