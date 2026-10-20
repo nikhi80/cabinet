@@ -36,14 +36,18 @@ jobs:
           export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
-          # Ensure the Android command line tools are present before using sdkmanager
           if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "Installing cmdline-tools;latest"
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            echo "Installing cmdline-tools;latest"
             yes | "$ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager" --install "cmdline-tools;latest" >/dev/null || true
           fi
 
-          # Accept licenses and install required components
+          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "sdkmanager not found after install"
+            ls -R "$ANDROID_SDK_ROOT" || true
+            exit 1
+          fi
+
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
             "platform-tools" \
