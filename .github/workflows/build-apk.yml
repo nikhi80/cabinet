@@ -1,4 +1,4 @@
-
+```yaml
 name: Build Cabinet APK
 
 on:
@@ -26,12 +26,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android command-line tools
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
 
       - name: Install Android SDK packages
         run: |
-          yes | sdkmanager --licenses || true
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-34" \
@@ -69,3 +70,4 @@ jobs:
           path: Cabinet/bin/*.apk
           if-no-files-found: error
           retention-days: 7
+```
