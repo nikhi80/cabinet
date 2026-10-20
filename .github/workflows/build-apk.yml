@@ -29,6 +29,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -43,16 +46,10 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install "cython==0.29.36" buildozer
 
-      - name: Display Android SDK licenses
-        run: sdkmanager --licenses
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platform-tools" "build-tools;35.0.0"
-
       - name: Build Cabinet APK
         working-directory: Cabinet
-        run: buildozer -v android debug
+        run: |
+          buildozer -v android debug
 
       - name: Upload APK
         if: success()
