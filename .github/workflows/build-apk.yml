@@ -1,4 +1,3 @@
-
 name: Build Cabinet APK
 
 on:
@@ -29,7 +28,18 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
       - name: Install Buildozer dependencies
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -39,13 +49,18 @@ jobs:
             libssl-dev automake autopoint gettext
 
       - name: Install Buildozer
+        shell: bash
         run: |
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
       - name: Build Cabinet APK
         working-directory: Cabinet
-        run: buildozer -v android debug
+        shell: bash
+        run: |
+          export ANDROID_HOME=$ANDROID_HOME
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          buildozer -v android debug
 
       - name: Upload APK
         if: success()
