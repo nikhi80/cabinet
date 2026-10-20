@@ -36,25 +36,20 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
-      - name: Set Android SDK location
-        run: |
-          echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> "$GITHUB_ENV"
-
-      - name: Accept Android SDK licenses
-        run: |
-          mkdir -p "$HOME/.buildozer/android/platform/android-sdk/licenses"
-          touch "$HOME/.buildozer/android/platform/android-sdk/licenses/android-sdk-license"
-          yes | head -n 100 | while read -r line; do
-            echo "$line"
-          done
-          yes | sdkmanager --licenses || true
-
-      - name: Check project files
+      - name: Check Cabinet files
         run: |
           test -f Cabinet/main.py
           test -f Cabinet/buildozer.spec
           echo "Cabinet files found."
+
+      - name: Enable Android SDK license acceptance
+        working-directory: Cabinet
+        run: |
+          if grep -q '^android.accept_sdk_license' buildozer.spec; then
+            sed -i 's/^android.accept_sdk_license.*/android.accept_sdk_license = True/' buildozer.spec
+          else
+            sed -i '/^\[app\]/a android.accept_sdk_license = True' buildozer.spec
+          fi
 
       - name: Build Cabinet APK
         working-directory: Cabinet
