@@ -50,16 +50,20 @@ jobs:
             fi
           fi
 
+          # Buildozer expects the legacy SDK layout
+          mkdir -p "$SDK_ROOT/tools"
+          ln -sfn "$SDK_ROOT/cmdline-tools/latest/bin" "$SDK_ROOT/tools/bin"
+
           export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
-          if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+          if [ ! -x "$SDK_ROOT/tools/bin/sdkmanager" ]; then
             echo "sdkmanager not found"
             ls -R "$SDK_ROOT" || true
             exit 1
           fi
 
-          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
-          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --install \
+          yes | "$SDK_ROOT/tools/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDK_ROOT/tools/bin/sdkmanager" --sdk_root="$SDK_ROOT" --install \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
