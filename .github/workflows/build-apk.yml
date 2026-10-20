@@ -1,3 +1,4 @@
+```yaml
 name: Build Cabinet APK
 
 on:
@@ -28,58 +29,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Prepare Android SDK for Buildozer
-        shell: bash
-        run: |
-          set -e
-
-          echo "SDK location: $ANDROID_HOME"
-          echo "Available command-line tools:"
-          ls -la "$ANDROID_HOME/cmdline-tools"
-
-          CMDLINE_TOOLS_DIR="$(find "$ANDROID_HOME/cmdline-tools" \
-            -mindepth 1 -maxdepth 1 -type d \
-            ! -name latest | sort -V | tail -n 1)"
-
-          if [ -z "$CMDLINE_TOOLS_DIR" ]; then
-            echo "ERROR: Android command-line tools were not found."
-            exit 1
-          fi
-
-          if [ ! -x "$CMDLINE_TOOLS_DIR/bin/sdkmanager" ]; then
-            echo "ERROR: sdkmanager executable was not found."
-            exit 1
-          fi
-
-          if [ ! -e "$ANDROID_HOME/cmdline-tools/latest" ]; then
-            ln -s "$CMDLINE_TOOLS_DIR" \
-              "$ANDROID_HOME/cmdline-tools/latest"
-          fi
-
-          if [ ! -e "$ANDROID_HOME/tools" ]; then
-            ln -s "$ANDROID_HOME/cmdline-tools/latest" \
-              "$ANDROID_HOME/tools"
-          fi
-
-          mkdir -p "$HOME/.buildozer/android/platform"
-
-          if [ ! -e "$HOME/.buildozer/android/platform/android-sdk" ]; then
-            ln -s "$ANDROID_HOME" \
-              "$HOME/.buildozer/android/platform/android-sdk"
-          fi
-
-          test -x "$HOME/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager"
-          echo "Buildozer SDK path is ready."
-
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
-
-      - name: Install system dependencies
+      - name: Install Buildozer dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -93,12 +43,6 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install cython==0.29.36 buildozer
 
-      - name: Check project files
-        run: |
-          test -f Cabinet/main.py
-          test -f Cabinet/buildozer.spec
-          grep '^requirements *=' Cabinet/buildozer.spec
-
       - name: Build Cabinet APK
         working-directory: Cabinet
         run: buildozer -v android debug
@@ -111,3 +55,4 @@ jobs:
           path: Cabinet/bin/*.apk
           if-no-files-found: error
           retention-days: 7
+```
