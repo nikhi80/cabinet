@@ -1,6 +1,4 @@
-
 [app]
-android.accept_sdk_license = True
 title = Cabinet
 package.name = cabinet
 package.domain = org.cabinetapp
@@ -11,6 +9,9 @@ requirements = python3,kivy
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET
+android.accept_sdk_license = True
+android.python_version = 3.11
+p4a.branch = develop
 
 [buildozer]
 log_level = 2
