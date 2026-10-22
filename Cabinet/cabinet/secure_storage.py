@@ -1,4 +1,4 @@
-"""Authenticated encryption for optional sensitive local health records."""
+
 
 from __future__ import annotations
 
@@ -7,9 +7,6 @@ import binascii
 import hashlib
 import os
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 
 def supports_private_storage(platform_name: str) -> bool:
     return platform_name in {"android", "win"}
@@ -17,6 +14,24 @@ def supports_private_storage(platform_name: str) -> bool:
 
 class SecureStorageUnavailable(RuntimeError):
     """The operating system cannot provide a protected key store."""
+
+
+def _load_aesgcm():
+    """Load `cryptography` only when it is needed.
+
+    Android encrypts with the Android Keystore (through pyjnius) and never uses
+    this package. Only the Windows desktop path needs it, so importing it here
+    instead of at the top of the file lets the Android app start without it.
+    """
+    try:
+        from cryptography.exceptions import InvalidTag
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError as error:
+        raise SecureStorageUnavailable(
+            "The 'cryptography' package is not installed, so private records "
+            "are unavailable on this device."
+        ) from error
+    return AESGCM, InvalidTag
 
 
 class PrivateDataCipher:
@@ -39,6 +54,7 @@ class PrivateDataCipher:
     def encrypt(self, value: str) -> str:
         if self.platform_name == "android":
             return self._android_encrypt(value)
+        AESGCM, _ = _load_aesgcm()
         nonce = os.urandom(12)
         ciphertext = AESGCM(self._key).encrypt(nonce, value.encode("utf-8"), None)
         return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
@@ -46,6 +62,7 @@ class PrivateDataCipher:
     def decrypt(self, value: str) -> str:
         if self.platform_name == "android":
             return self._android_decrypt(value)
+        AESGCM, InvalidTag = _load_aesgcm()
         raw = base64.urlsafe_b64decode(value.encode("ascii"))
         try:
             plaintext = AESGCM(self._key).decrypt(raw[:12], raw[12:], None)
