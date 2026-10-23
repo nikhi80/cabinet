@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date
+import calendar as month_calendar
+from datetime import date, datetime
 from pathlib import Path
 
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
@@ -166,7 +169,14 @@ class CabinetScreen(Screen):
         content.add_widget(close)
         popup.open()
 
-    def show_form(self, title, fields, on_submit, submit_text="Save"):
+    def show_form(
+        self,
+        title,
+        fields,
+        on_submit,
+        submit_text="Save",
+        optional_fields=None,
+    ):
         content = BoxLayout(
             orientation="vertical", spacing=dp(9), padding=dp(16), size_hint_y=None
         )
@@ -191,6 +201,90 @@ class CabinetScreen(Screen):
             )
             inputs[key] = widget
             content.add_widget(widget)
+        alarm_checkbox = None
+        if optional_fields:
+            alarm_row = BoxLayout(
+                size_hint_y=None,
+                height=dp(42),
+                spacing=dp(8),
+            )
+            alarm_checkbox = CheckBox(
+                active=False,
+                size_hint=(None, None),
+                size=(dp(32), dp(32)),
+                color=self.palette["mint"],
+            )
+            alarm_row.add_widget(alarm_checkbox)
+            alarm_row.add_widget(
+                self.label(
+                    "Add a daily alarm",
+                    13,
+                    True,
+                    self.palette["text"],
+                    dp(36),
+                )
+            )
+            content.add_widget(alarm_row)
+            optional_container = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=0,
+                spacing=dp(9),
+            )
+            optional_widgets = []
+            for field in optional_fields:
+                key, label_text, hint, input_filter = field[:4]
+                initial_value = field[4] if len(field) > 4 else ""
+                label_widget = self.label(
+                    label_text,
+                    12,
+                    True,
+                    self.palette["muted"],
+                    dp(20),
+                )
+                optional_container.add_widget(label_widget)
+                widget = TextInput(
+                    hint_text=hint,
+                    text=initial_value,
+                    multiline=False,
+                    size_hint_y=None,
+                    height=dp(43),
+                    padding=(dp(10), dp(10)),
+                    font_size=dp(14),
+                    foreground_color=self.palette["text"],
+                    background_color=self.palette["background"],
+                    cursor_color=self.palette["mint"],
+                    input_filter=input_filter,
+                )
+                inputs[key] = widget
+                optional_container.add_widget(widget)
+                optional_widgets.extend((label_widget, widget))
+
+            def set_optional_visibility(_checkbox, active):
+                optional_container.height = (
+                    sum(widget.height + optional_container.spacing
+                        for widget in optional_widgets)
+                    if active
+                    else 0
+                )
+
+            alarm_checkbox.bind(active=set_optional_visibility)
+            content.add_widget(optional_container)
+            content.add_widget(
+                self.label(
+                    (
+                        "Choose exact 24-hour times and an end date. Android "
+                        "notifications repeat daily through that date."
+                        if platform == "android"
+                        else "Choose exact 24-hour times and an end date. The "
+                        "schedule appears in Calendar; system alarms are Android-only."
+                    ),
+                    11,
+                    False,
+                    self.palette["muted"],
+                    dp(34),
+                )
+            )
         error_label = self.label("", 11, False, self.palette["danger"], dp(22))
         content.add_widget(error_label)
         buttons = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
@@ -206,6 +300,8 @@ class CabinetScreen(Screen):
 
         def submit(*_):
             values = {key: widget.text.strip() for key, widget in inputs.items()}
+            if alarm_checkbox is not None:
+                values["_optional_enabled"] = alarm_checkbox.active
             try:
                 on_submit(values)
             except (ValueError, OSError) as error:
@@ -598,6 +694,8 @@ class MedicinesScreen(CabinetScreen):
         self.refresh()
 
     def open_medicine_form(self):
+        from datetime import date
+
         return self.show_form(
             "Add medicine",
             [
@@ -614,16 +712,51 @@ class MedicinesScreen(CabinetScreen):
                 ),
                 ("notes", "Notes", "Optional", None),
             ],
-            lambda values: self.store.add_medicine(
-                values["name"],
-                values["quantity"],
-                values["low_stock_threshold"] or 0,
-                values["strength"],
-                values["form"],
-                values["expiry_date"],
-                values["notes"],
-            ),
+            self._save_new_medicine,
+            optional_fields=[
+                (
+                    "alarm_times",
+                    "Alarm times (24-hour, comma-separated)",
+                    "08:00, 20:00",
+                    None,
+                ),
+                (
+                    "alarm_start_date",
+                    "Alarm start date",
+                    "YYYY-MM-DD",
+                    None,
+                    date.today().isoformat(),
+                ),
+                (
+                    "alarm_end_date",
+                    "Repeat through (end date)",
+                    "YYYY-MM-DD",
+                    None,
+                ),
+            ],
         )
+
+    def _save_new_medicine(self, values):
+        alarm_enabled = values.pop("_optional_enabled", False)
+        alarm_times = None
+        if alarm_enabled:
+            alarm_times = [
+                value.strip() for value in values["alarm_times"].split(",")
+            ]
+        self.store.add_medicine(
+            values["name"],
+            values["quantity"],
+            values["low_stock_threshold"] or 0,
+            values["strength"],
+            values["form"],
+            values["expiry_date"],
+            values["notes"],
+            alarm_start_date=values.get("alarm_start_date", ""),
+            alarm_end_date=values.get("alarm_end_date", ""),
+            alarm_times=alarm_times,
+        )
+        if alarm_enabled:
+            self.app.set_reminders_enabled(True)
 
     def edit_medicine(self, medicine):
         fields = [
@@ -670,6 +803,7 @@ class MedicinesScreen(CabinetScreen):
                     )
                 },
             )
+            self.app.sync_dose_notifications()
 
         return self.show_form("Update medicine", fields, update, "Update")
 
@@ -808,6 +942,7 @@ class MedicinesScreen(CabinetScreen):
 
         def confirm():
             self.store.delete_medicine(medicine["id"])
+            self.app.sync_dose_notifications()
             popup.dismiss()
             self.refresh()
 
@@ -950,73 +1085,64 @@ class VaccinesScreen(CabinetScreen):
 
 
 class CalendarScreen(CabinetScreen):
+    def __init__(self, app, **kwargs):
+        self.display_month = date.today().replace(day=1)
+        self.selected_date = date.today()
+        super().__init__(app, name="calendar", **kwargs)
+
     def build_content(self):
-        self.add_heading("Calendar", "Dates you choose to keep track of.")
+        self.add_heading(
+            "Calendar",
+            "Upcoming medicine doses, vaccine dates, and family appointments.",
+        )
         self.body.add_widget(
             self.button("＋  Add appointment or reminder", self.open_appointment_form, True)
         )
         content = self.scroll()
-        today = date.today().isoformat()
-        events = []
-        for item in self.store.list_appointments():
-            events.append(
-                {
-                    "date": item["appointment_date"],
-                    "title": item["title"],
-                    "detail": " · ".join(
-                        value for value in (item["person"], item["kind"]) if value
-                    ),
-                    "id": item["id"],
-                    "kind": "appointment",
-                }
-            )
-        for item in self.store.list_medicines():
-            if item["expiry_date"]:
-                events.append(
-                    {
-                        "date": item["expiry_date"],
-                        "title": f"{item['name']} expiry",
-                        "detail": f"Medicine · {item['quantity']} in stock",
-                        "id": None,
-                        "kind": "expiry",
-                    }
-                )
-        for item in self.store.list_vaccines():
-            if item["next_due_on"]:
-                events.append(
-                    {
-                        "date": item["next_due_on"],
-                        "title": f"{item['vaccine_name']} due date",
-                        "detail": item["person"],
-                        "id": None,
-                        "kind": "due",
-                    }
-                )
-        events.sort(key=lambda event: (event["date"] < today, event["date"]))
-        doses = self.store.list_upcoming_doses(limit=100)
-        if not events and not doses:
-            empty = self.card()
-            empty.add_widget(self.label("Your calendar is clear", 17, True))
-            empty.add_widget(
+        events_by_date = self._calendar_events()
+        self._add_month_calendar(content, events_by_date)
+        selected_events = events_by_date.get(self.selected_date.isoformat(), [])
+        self.section_title(
+            content,
+            f"Events on {self.selected_date.strftime('%B %d, %Y')}",
+        )
+        if not selected_events:
+            content.add_widget(
                 self.label(
-                    "Create reminders yourself, or add dates from your family’s official vaccination records.",
-                    13,
+                    "No recorded events for this date.",
+                    12,
                     False,
                     self.palette["muted"],
+                    dp(28),
                 )
             )
-            content.add_widget(empty)
-        for event in events:
+        for event in selected_events:
+            if event["kind"] == "dose":
+                self.add_dose_card(content, event["dose"])
+                continue
             card = self.card(
                 self.palette["mint_soft"]
-                if event["date"] >= today
+                if event["date"] >= date.today().isoformat()
                 else self.palette["surface"]
             )
             card.add_widget(
-                self.label(event["date"], 12, True, self.palette["mint"], dp(20))
+                self.label(
+                    self._event_kind_label(event["kind"]),
+                    10,
+                    True,
+                    self.palette["mint"],
+                    dp(18),
+                )
             )
-            card.add_widget(self.label(event["title"], 15, True, self.palette["text"], dp(26)))
-            card.add_widget(self.label(event["detail"], 12, False, self.palette["muted"], dp(20)))
+            card.add_widget(
+                self.label(event["title"], 15, True, self.palette["text"], dp(26))
+            )
+            if event["detail"]:
+                card.add_widget(
+                    self.label(
+                        event["detail"], 12, False, self.palette["muted"], dp(20)
+                    )
+                )
             if event["kind"] == "appointment":
                 card.add_widget(
                     self.button(
@@ -1026,11 +1152,6 @@ class CalendarScreen(CabinetScreen):
                     )
                 )
             content.add_widget(card)
-
-        if doses:
-            self.section_title(content, "Upcoming medicine doses")
-            for dose in doses:
-                self.add_dose_card(content, dose)
         history = self.store.dose_history(limit=10)
         if history:
             self.section_title(content, "Recent dose history")
@@ -1055,6 +1176,219 @@ class CalendarScreen(CabinetScreen):
                     )
                 )
                 content.add_widget(card)
+
+    def _calendar_events(self):
+        first_day = self.display_month
+        last_day = self.display_month.replace(
+            day=month_calendar.monthrange(
+                self.display_month.year, self.display_month.month
+            )[1]
+        )
+        today = date.today()
+        events_by_date: dict[str, list[dict]] = {}
+
+        def add_event(event):
+            event_date = event["date"]
+            if first_day.isoformat() <= event_date <= last_day.isoformat():
+                events_by_date.setdefault(event_date, []).append(event)
+
+        for item in self.store.list_appointments():
+            add_event(
+                {
+                    "date": item["appointment_date"],
+                    "title": item["title"],
+                    "detail": " · ".join(
+                        value for value in (item["person"], item["kind"]) if value
+                    ),
+                    "id": item["id"],
+                    "kind": "appointment",
+                }
+            )
+        for item in self.store.list_medicines():
+            if item["expiry_date"]:
+                add_event(
+                    {
+                        "date": item["expiry_date"],
+                        "title": f"{item['name']} expiry",
+                        "detail": f"Medicine · {item['quantity']} in stock",
+                        "id": None,
+                        "kind": "expiry",
+                    }
+                )
+        for item in self.store.list_vaccines():
+            if item["administered_on"]:
+                add_event(
+                    {
+                        "date": item["administered_on"],
+                        "title": f"{item['vaccine_name']} given",
+                        "detail": " · ".join(
+                            value
+                            for value in (item["person"], item["dose_label"])
+                            if value
+                        ),
+                        "id": None,
+                        "kind": "vaccine_given",
+                    }
+                )
+            if item["next_due_on"]:
+                add_event(
+                    {
+                        "date": item["next_due_on"],
+                        "title": f"{item['vaccine_name']} due",
+                        "detail": item["person"],
+                        "id": None,
+                        "kind": "vaccine_due",
+                    }
+                )
+        if last_day >= today:
+            for dose in self.store.list_dose_reminders_between(
+                max(first_day, today), last_day
+            ):
+                due_at = datetime.fromisoformat(
+                    dose["snoozed_until"] or dose["due_at"]
+                )
+                add_event(
+                    {
+                        "date": due_at.date().isoformat(),
+                        "title": dose["name"],
+                        "detail": due_at.strftime("%H:%M"),
+                        "id": dose["id"],
+                        "kind": "dose",
+                        "dose": dose,
+                    }
+                )
+        for events in events_by_date.values():
+            events.sort(
+                key=lambda event: (
+                    event.get("detail", ""),
+                    event["title"].casefold(),
+                )
+            )
+        return events_by_date
+
+    @staticmethod
+    def _event_kind_label(kind):
+        return {
+            "appointment": "APPOINTMENT",
+            "expiry": "MEDICINE EXPIRY",
+            "vaccine_given": "VACCINE GIVEN",
+            "vaccine_due": "UPCOMING VACCINE",
+        }.get(kind, kind.replace("_", " ").upper())
+
+    def _add_month_calendar(self, parent, events_by_date):
+        month_row = BoxLayout(
+            size_hint_y=None,
+            height=dp(42),
+            spacing=dp(8),
+        )
+        month_row.add_widget(
+            self.button("‹", self.previous_month, height=38)
+        )
+        month_row.add_widget(
+            self.label(
+                self.display_month.strftime("%B %Y"),
+                16,
+                True,
+                self.palette["text"],
+                dp(38),
+            )
+        )
+        month_row.add_widget(
+            self.button("›", self.next_month, height=38)
+        )
+        parent.add_widget(month_row)
+
+        weekdays = GridLayout(
+            cols=7,
+            size_hint_y=None,
+            height=dp(24),
+        )
+        for weekday in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
+            weekdays.add_widget(
+                self.label(weekday, 10, True, self.palette["muted"], dp(22))
+            )
+        parent.add_widget(weekdays)
+
+        days = GridLayout(
+            cols=7,
+            spacing=dp(3),
+            size_hint_y=None,
+            height=dp(6 * 48),
+        )
+        start_weekday, days_in_month = month_calendar.monthrange(
+            self.display_month.year, self.display_month.month
+        )
+        day_cells = [""] * start_weekday + list(range(1, days_in_month + 1))
+        day_cells.extend([""] * (42 - len(day_cells)))
+        for day_number in day_cells:
+            if not day_number:
+                days.add_widget(self.label("", 11, height=dp(44)))
+                continue
+            selected = self.display_month.replace(day=day_number)
+            marked = bool(events_by_date.get(selected.isoformat()))
+            is_selected = selected == self.selected_date
+            background = (
+                self.palette["button_primary"]
+                if is_selected
+                else self.palette["mint_soft"]
+                if marked
+                else self.palette["surface"]
+            )
+            foreground = (
+                self.palette["button_primary_text"]
+                if is_selected
+                else self.palette["text"]
+            )
+            cell = Button(
+                text=f"{day_number}\n•" if marked else str(day_number),
+                size_hint_y=None,
+                height=dp(45),
+                font_size=dp(12),
+                background_normal="",
+                background_down="",
+                background_color=background,
+                color=foreground,
+                on_release=lambda _button, selected_date=selected:
+                    self.select_date(selected_date),
+            )
+            days.add_widget(cell)
+        parent.add_widget(days)
+        parent.add_widget(
+            self.label(
+                "A dot marks a medicine, vaccine, expiry, or appointment date.",
+                11,
+                False,
+                self.palette["muted"],
+                dp(26),
+            )
+        )
+
+    def select_date(self, selected_date):
+        self.selected_date = selected_date
+        self.refresh()
+
+    def previous_month(self):
+        month = self.display_month.month - 1
+        year = self.display_month.year
+        if month == 0:
+            month, year = 12, year - 1
+        self._change_month(year, month)
+
+    def next_month(self):
+        month = self.display_month.month + 1
+        year = self.display_month.year
+        if month == 13:
+            month, year = 1, year + 1
+        self._change_month(year, month)
+
+    def _change_month(self, year, month):
+        day = min(
+            self.selected_date.day,
+            month_calendar.monthrange(year, month)[1],
+        )
+        self.display_month = date(year, month, 1)
+        self.selected_date = date(year, month, day)
+        self.refresh()
 
     def open_appointment_form(self):
         self.show_form(

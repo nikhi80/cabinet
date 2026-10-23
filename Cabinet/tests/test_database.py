@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from cabinet.database import CabinetStore
@@ -40,6 +40,75 @@ class CabinetStoreTests(unittest.TestCase):
 
         self.store.update_medicine(medicine_id, expiry_date="")
         self.assertEqual(self.store.list_medicines()[0]["expiry_date"], "")
+
+    def test_new_medicine_can_have_daily_alarm_through_end_date(self):
+        start = date.today() + timedelta(days=2)
+        end = start + timedelta(days=1)
+        medicine_id = self.store.add_medicine(
+            "Daily medicine",
+            10,
+            alarm_start_date=start.isoformat(),
+            alarm_end_date=end.isoformat(),
+            alarm_times=["08:00", "20:00"],
+        )
+
+        reminders = self.store.list_dose_reminders_between(start, end)
+        self.assertEqual(len(reminders), 4)
+        self.assertTrue(all(item["id"] < 0 for item in reminders))
+        self.assertTrue(all(item["medicine_id"] == medicine_id for item in reminders))
+        self.assertEqual(
+            [item["due_at"][11:16] for item in reminders],
+            ["08:00", "20:00", "08:00", "20:00"],
+        )
+        upcoming = self.store.list_upcoming_doses(
+            now=datetime.combine(start, datetime.min.time())
+        )
+        self.assertTrue(all(item["id"] < 0 for item in upcoming))
+        self.assertEqual(len(upcoming), 4)
+
+    def test_medicine_alarm_can_be_snoozed_and_marked_taken(self):
+        start = date.today() + timedelta(days=2)
+        medicine_id = self.store.add_medicine(
+            "Dose medicine",
+            1,
+            alarm_start_date=start.isoformat(),
+            alarm_end_date=start.isoformat(),
+            alarm_times=["08:00"],
+        )
+        reminder = self.store.list_dose_reminders_between(start, start)[0]
+        now = datetime.fromisoformat(reminder["due_at"]) - timedelta(minutes=5)
+
+        self.store.update_dose_reminder(reminder["id"], "snoozed", now)
+        snoozed = self.store.list_dose_reminders_between(start, start)[0]
+        self.assertEqual(
+            snoozed["snoozed_until"],
+            (now + timedelta(minutes=15)).isoformat(),
+        )
+        self.store.update_dose_reminder(snoozed["id"], "taken", now)
+
+        history = self.store.dose_history()
+        self.assertEqual(history[0]["status"], "taken")
+        self.assertEqual(history[0]["name"], "Dose medicine")
+        self.assertEqual(self.store.list_medicines()[0]["id"], medicine_id)
+
+    def test_invalid_alarm_does_not_create_medicine(self):
+        today = date.today()
+        invalid_schedules = (
+            (today, today, [], "at least one alarm time"),
+            (today, today, ["25:00"], "24-hour HH:MM"),
+            (today, today - timedelta(days=1), ["08:00"], "cannot be before"),
+        )
+        for start, end, times, error in invalid_schedules:
+            with self.subTest(start=start, end=end, times=times):
+                with self.assertRaisesRegex(ValueError, error):
+                    self.store.add_medicine(
+                        "Invalid alarm",
+                        1,
+                        alarm_start_date=start.isoformat(),
+                        alarm_end_date=end.isoformat(),
+                        alarm_times=times,
+                    )
+        self.assertEqual(self.store.list_medicines(), [])
 
     def test_rejects_noncanonical_or_impossible_expiry_dates(self):
         for expiry_date in ("20310203", "2031-02-30"):

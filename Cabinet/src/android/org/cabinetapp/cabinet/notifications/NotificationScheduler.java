@@ -119,7 +119,7 @@ public final class NotificationScheduler {
                 continue;
             }
             int id = alarm.optInt("id", -1);
-            if (id < 0) {
+            if (id == -1 || id == Integer.MIN_VALUE) {
                 continue;
             }
             scheduleAlarm(context, id, triggerAt, alarm);
@@ -165,7 +165,7 @@ public final class NotificationScheduler {
                 continue;
             }
             int id = alarm.optInt("id", -1);
-            if (id < 0) {
+            if (id == -1 || id == Integer.MIN_VALUE) {
                 continue;
             }
             PendingIntent pendingIntent = PendingIntent.getBroadcast(

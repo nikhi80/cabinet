@@ -6,6 +6,18 @@ from datetime import date
 GENDER_OPTIONS = ("Female", "Male", "Prefer not to say")
 
 
+def format_date_of_birth_input(value: str) -> str:
+    """Format typed digits as YYYY-MM-DD, inserting separators automatically."""
+    digits = "".join(
+        character for character in value if "0" <= character <= "9"
+    )[:8]
+    if len(digits) > 6:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:]}"
+    if len(digits) > 4:
+        return f"{digits[:4]}-{digits[4:]}"
+    return digits
+
+
 def validate_date_of_birth(value: str, today: date | None = None) -> str:
     cleaned = value.strip()
     try:
@@ -14,6 +26,9 @@ def validate_date_of_birth(value: str, today: date | None = None) -> str:
         raise ValueError("Date of birth must use YYYY-MM-DD format.") from error
     if birth_date.isoformat() != cleaned:
         raise ValueError("Date of birth must use YYYY-MM-DD format.")
+    current_date = today or date.today()
+    if birth_date.year > current_date.year:
+        raise ValueError("Year of birth cannot be later than the current year.")
     age = calculate_age(cleaned, today)
     if age > 120:
         raise ValueError("Enter a valid date of birth.")

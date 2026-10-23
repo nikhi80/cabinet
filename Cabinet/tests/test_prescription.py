@@ -207,6 +207,29 @@ class PrescriptionStoreTests(unittest.TestCase):
         self.store.update_dose_reminder(snoozed["id"], "taken", now)
         self.assertEqual(self.store.dose_history()[0]["status"], "taken")
 
+    def test_dose_reminders_can_be_listed_for_calendar_month_without_mutation(self):
+        start_date = date.today() + timedelta(days=2)
+        end_date = start_date + timedelta(days=1)
+        self.store.confirm_prescription(
+            [
+                self._item(
+                    start_date=start_date.isoformat(),
+                    duration_days="2",
+                    frequency="once daily",
+                    reminder_times=["08:00"],
+                )
+            ],
+            "calendar-dose-range",
+        )
+
+        reminders = self.store.list_dose_reminders_between(start_date, end_date)
+        self.assertEqual(len(reminders), 2)
+        self.assertEqual(
+            [reminder["due_at"][:10] for reminder in reminders],
+            [start_date.isoformat(), end_date.isoformat()],
+        )
+        self.assertEqual(self.store.dose_history(), [])
+
     def test_old_pending_doses_are_recorded_as_missed(self):
         self.store.confirm_prescription([self._item()], "missed-history")
         self.store.list_upcoming_doses(datetime(2030, 1, 1, 9, 0))

@@ -61,6 +61,25 @@ class DoseNotificationTests(unittest.TestCase):
             int(datetime(2030, 1, 2, 8, 10).timestamp() * 1000),
         )
 
+    def test_preserves_negative_medicine_alarm_ids(self):
+        due_at = datetime(2030, 1, 2, 9, 30)
+        payloads = build_dose_notification_payloads(
+            [
+                {
+                    "id": -2,
+                    "due_at": due_at.isoformat(),
+                    "snoozed_until": "",
+                    "name": "Daily medicine",
+                    "strength": "",
+                    "dose": "Scheduled alarm",
+                    "frequency": "Daily",
+                }
+            ],
+            now=datetime(2030, 1, 2, 8, 0),
+        )
+
+        self.assertEqual(payloads[0]["id"], -2)
+
 
 if __name__ == "__main__":
     unittest.main()

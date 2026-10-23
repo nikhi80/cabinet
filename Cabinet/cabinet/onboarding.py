@@ -17,6 +17,7 @@ from kivy.uix.widget import Widget
 
 from cabinet.preferences import (
     GENDER_OPTIONS,
+    format_date_of_birth_input,
     save_setup_preferences,
     validate_date_of_birth,
     validate_gender,
@@ -287,6 +288,33 @@ class SetupScreen(Screen):
         )
         return field
 
+    def _format_dob_input(self, field, value):
+        if getattr(self, "_formatting_dob", False):
+            return
+        formatted = format_date_of_birth_input(value)
+        if formatted == value:
+            return
+
+        column = field.cursor[0]
+        digits_before_cursor = sum(
+            "0" <= character <= "9" for character in value[:column]
+        )
+        cursor_column = 0
+        digits_seen = 0
+        while cursor_column < len(formatted) and digits_seen < digits_before_cursor:
+            if "0" <= formatted[cursor_column] <= "9":
+                digits_seen += 1
+            cursor_column += 1
+        if cursor_column in (4, 7) and cursor_column < len(formatted):
+            cursor_column += 1
+
+        self._formatting_dob = True
+        try:
+            field.text = formatted
+            field.cursor = (cursor_column, field.cursor[1])
+        finally:
+            self._formatting_dob = False
+
     def _button(self, text, callback, primary=False, completion=False):
         if completion:
             button = Button(
@@ -346,7 +374,11 @@ class SetupScreen(Screen):
             content.add_widget(
                 self._label("DATE OF BIRTH", 10, self.app.palette["muted"], True)
             )
-            self.dob_input = self._input("YYYY-MM-DD", self.date_of_birth)
+            self.dob_input = self._input(
+                "YYYY-MM-DD",
+                format_date_of_birth_input(self.date_of_birth),
+            )
+            self.dob_input.bind(text=self._format_dob_input)
             content.add_widget(self.dob_input)
             content.add_widget(
                 self._label(

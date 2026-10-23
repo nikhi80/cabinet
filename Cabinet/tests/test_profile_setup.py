@@ -7,6 +7,7 @@ from cabinet.cycle import account_database_path
 from cabinet.database import CabinetStore
 from cabinet.preferences import (
     calculate_age,
+    format_date_of_birth_input,
     is_menstruation_eligible,
     menstruation_tab_enabled,
     save_setup_preferences,
@@ -15,6 +16,12 @@ from cabinet.preferences import (
 
 
 class ProfileSetupTests(unittest.TestCase):
+    def test_date_of_birth_input_adds_hyphens_after_year_and_month(self):
+        self.assertEqual(format_date_of_birth_input("19900325"), "1990-03-25")
+        self.assertEqual(format_date_of_birth_input("1990-03-25"), "1990-03-25")
+        self.assertEqual(format_date_of_birth_input("1990/03/25"), "1990-03-25")
+        self.assertEqual(format_date_of_birth_input("199003"), "1990-03")
+
     def test_age_is_calculated_relative_to_the_birthday(self):
         today = date(2030, 5, 10)
         self.assertEqual(calculate_age("2018-05-10", today), 12)
@@ -26,6 +33,18 @@ class ProfileSetupTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     validate_date_of_birth(value, date(2030, 5, 10))
+
+    def test_date_of_birth_rejects_year_after_current_year(self):
+        with self.assertRaisesRegex(ValueError, "later than the current year"):
+            validate_date_of_birth("2031-01-01", date(2030, 5, 10))
+        for invalid_date in ("2000-13-01", "2000-02-30"):
+            with self.subTest(invalid_date=invalid_date):
+                with self.assertRaisesRegex(ValueError, "YYYY-MM-DD"):
+                    validate_date_of_birth(invalid_date, date(2030, 5, 10))
+        self.assertEqual(
+            validate_date_of_birth("2030-05-10", date(2030, 5, 10)),
+            "2030-05-10",
+        )
 
     def test_tab_eligibility_requires_female_and_age_twelve(self):
         today = date(2030, 5, 10)

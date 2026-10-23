@@ -126,6 +126,26 @@ class CabinetStore:
                     updated_at TEXT NOT NULL,
                     UNIQUE (schedule_id, due_at)
                 );
+                CREATE TABLE IF NOT EXISTS medicine_alarm_schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL REFERENCES medicines(id)
+                        ON DELETE CASCADE,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    reminder_times TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS medicine_alarm_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    schedule_id INTEGER NOT NULL
+                        REFERENCES medicine_alarm_schedules(id) ON DELETE CASCADE,
+                    due_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'taken', 'skipped', 'missed')),
+                    snoozed_until TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (schedule_id, due_at)
+                );
                 CREATE TABLE IF NOT EXISTS settings (
                     setting_key TEXT PRIMARY KEY,
                     setting_value TEXT NOT NULL
@@ -182,11 +202,34 @@ class CabinetStore:
         form: str = "",
         expiry_date: str = "",
         notes: str = "",
+        alarm_start_date: str = "",
+        alarm_end_date: str = "",
+        alarm_times: list[str] | None = None,
     ) -> int:
         name = self._required_text(name, "Medicine name")
         quantity_value = self._nonnegative_int(quantity, "Quantity")
         threshold = self._nonnegative_int(low_stock_threshold, "Low-stock alert")
         expiry = self._validate_optional_date(expiry_date, "Expiry date")
+        alarm_schedule = None
+        if alarm_times is not None:
+            start_date = self._validate_optional_date(
+                alarm_start_date, "Alarm start date"
+            )
+            end_date = self._validate_optional_date(
+                alarm_end_date, "Alarm end date"
+            )
+            if not start_date or not end_date:
+                raise ValueError("Enter both a start date and an end date for the alarm.")
+            start = date.fromisoformat(start_date)
+            end = date.fromisoformat(end_date)
+            if start < date.today():
+                raise ValueError("Alarm start date cannot be in the past.")
+            if end < start:
+                raise ValueError("Alarm end date cannot be before its start date.")
+            if (end - start).days >= 3650:
+                raise ValueError("Medicine alarms can be scheduled for up to 10 years.")
+            times = self._validated_alarm_times(alarm_times)
+            alarm_schedule = (start_date, end_date, times)
         now = self._now()
         with self._connect() as connection:
             cursor = connection.execute(
@@ -213,7 +256,66 @@ class CabinetStore:
                    VALUES (?, ?, ?, ?, ?)""",
                 (medicine_id, quantity_value, quantity_value, "Initial stock", now),
             )
+            if alarm_schedule is not None:
+                self._create_medicine_alarm_schedule(
+                    connection, medicine_id, *alarm_schedule, now=now
+                )
             return medicine_id
+
+    @staticmethod
+    def _create_medicine_alarm_schedule(
+        connection: sqlite3.Connection,
+        medicine_id: int,
+        start_date: str,
+        end_date: str,
+        reminder_times: list[str],
+        *,
+        now: str,
+    ) -> None:
+        cursor = connection.execute(
+            """INSERT INTO medicine_alarm_schedules
+               (medicine_id, start_date, end_date, reminder_times)
+               VALUES (?, ?, ?, ?)""",
+            (medicine_id, start_date, end_date, json.dumps(reminder_times)),
+        )
+        schedule_id = int(cursor.lastrowid)
+        current_date = date.fromisoformat(start_date)
+        final_date = date.fromisoformat(end_date)
+        reminder_count = 0
+        while current_date <= final_date:
+            for reminder_time in reminder_times:
+                due_at = f"{current_date.isoformat()}T{reminder_time}:00"
+                if due_at >= now:
+                    connection.execute(
+                        """INSERT INTO medicine_alarm_reminders
+                           (schedule_id, due_at, updated_at)
+                           VALUES (?, ?, ?)""",
+                        (schedule_id, due_at, now),
+                    )
+                    reminder_count += 1
+            current_date += timedelta(days=1)
+        if reminder_count == 0:
+            raise ValueError("Choose an alarm time that is still in the future.")
+
+    @staticmethod
+    def _validated_alarm_times(values: list[str]) -> list[str]:
+        times = sorted(value.strip() for value in values if value.strip())
+        if not times:
+            raise ValueError("Enter at least one alarm time.")
+        if len(times) > 8:
+            raise ValueError("Add no more than 8 alarm times per day.")
+        for value in times:
+            try:
+                parsed = datetime.strptime(value, "%H:%M")
+            except ValueError as error:
+                raise ValueError(
+                    "Alarm times must use 24-hour HH:MM format."
+                ) from error
+            if parsed.strftime("%H:%M") != value:
+                raise ValueError("Alarm times must use 24-hour HH:MM format.")
+        if len(set(times)) != len(times):
+            raise ValueError("Alarm times must be different.")
+        return times
 
     def update_medicine(self, medicine_id: int, **values: Any) -> None:
         allowed = {
@@ -706,6 +808,14 @@ class CabinetStore:
                               THEN snoozed_until ELSE due_at END < ?""",
                 (now_text, now_text),
             )
+            connection.execute(
+                """UPDATE medicine_alarm_reminders
+                   SET status = 'missed', updated_at = ?
+                   WHERE status = 'pending'
+                     AND CASE WHEN snoozed_until != ''
+                              THEN snoozed_until ELSE due_at END < ?""",
+                (now_text, now_text),
+            )
             rows = connection.execute(
                 """SELECT d.id, d.due_at, d.status, d.snoozed_until,
                           i.medicine_id, i.name, i.strength, i.dose,
@@ -721,7 +831,95 @@ class CabinetStore:
                    LIMIT ?""",
                 (now_text, limit),
             ).fetchall()
-            return [dict(row) for row in rows]
+            alarm_rows = connection.execute(
+                """SELECT r.id, r.due_at, r.status, r.snoozed_until,
+                          m.id AS medicine_id, m.name, m.strength,
+                          'Scheduled alarm' AS dose, 'Daily' AS frequency,
+                          '' AS instructions
+                   FROM medicine_alarm_reminders r
+                   JOIN medicine_alarm_schedules s ON s.id = r.schedule_id
+                   JOIN medicines m ON m.id = s.medicine_id
+                   WHERE r.status = 'pending'
+                     AND CASE WHEN r.snoozed_until != ''
+                              THEN r.snoozed_until ELSE r.due_at END >= ?
+                   ORDER BY CASE WHEN r.snoozed_until != ''
+                                 THEN r.snoozed_until ELSE r.due_at END
+                   LIMIT ?""",
+                (now_text, limit),
+            ).fetchall()
+            doses = [dict(row) for row in rows]
+            doses.extend(
+                self._as_medicine_alarm_dose(row) for row in alarm_rows
+            )
+            doses.sort(
+                key=lambda dose: dose["snoozed_until"] or dose["due_at"]
+            )
+            return doses[:limit]
+
+    def list_dose_reminders_between(
+        self, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """List pending dose reminders in a date range without changing their status."""
+        if end_date < start_date:
+            raise ValueError("End date cannot be before start date.")
+        start_date = max(start_date, date.today())
+        if end_date < start_date:
+            return []
+        now_text = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT d.id, d.due_at, d.status, d.snoozed_until,
+                          i.medicine_id, i.name, i.strength, i.dose,
+                          i.frequency, i.instructions
+                   FROM dose_reminders d
+                   JOIN medicine_schedules s ON s.id = d.schedule_id
+                   JOIN prescription_items i ON i.id = s.prescription_item_id
+                   WHERE d.status = 'pending'
+                     AND CASE WHEN d.snoozed_until != ''
+                              THEN d.snoozed_until ELSE d.due_at END >= ?
+                     AND substr(
+                         CASE WHEN d.snoozed_until != ''
+                              THEN d.snoozed_until ELSE d.due_at END,
+                         1, 10
+                     ) BETWEEN ? AND ?
+                   ORDER BY CASE WHEN d.snoozed_until != ''
+                                 THEN d.snoozed_until ELSE d.due_at END""",
+                (now_text, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+            alarm_rows = connection.execute(
+                """SELECT r.id, r.due_at, r.status, r.snoozed_until,
+                          m.id AS medicine_id, m.name, m.strength,
+                          'Scheduled alarm' AS dose, 'Daily' AS frequency,
+                          '' AS instructions
+                   FROM medicine_alarm_reminders r
+                   JOIN medicine_alarm_schedules s ON s.id = r.schedule_id
+                   JOIN medicines m ON m.id = s.medicine_id
+                   WHERE r.status = 'pending'
+                     AND CASE WHEN r.snoozed_until != ''
+                              THEN r.snoozed_until ELSE r.due_at END >= ?
+                     AND substr(
+                         CASE WHEN r.snoozed_until != ''
+                              THEN r.snoozed_until ELSE r.due_at END,
+                         1, 10
+                     ) BETWEEN ? AND ?
+                   ORDER BY CASE WHEN r.snoozed_until != ''
+                                 THEN r.snoozed_until ELSE r.due_at END""",
+                (now_text, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+            doses = [dict(row) for row in rows]
+            doses.extend(
+                self._as_medicine_alarm_dose(row) for row in alarm_rows
+            )
+            doses.sort(
+                key=lambda dose: dose["snoozed_until"] or dose["due_at"]
+            )
+            return doses
+
+    @staticmethod
+    def _as_medicine_alarm_dose(row: sqlite3.Row) -> dict[str, Any]:
+        dose = dict(row)
+        dose["id"] = -int(dose["id"]) - 1
+        return dose
 
     def update_dose_reminder(
         self, reminder_id: int, action: str, now: datetime | None = None
@@ -729,11 +927,18 @@ class CabinetStore:
         now = now or datetime.now()
         if action not in {"taken", "skipped", "snoozed"}:
             raise ValueError("Choose Taken, Skip, or Snooze.")
+        is_medicine_alarm = reminder_id < 0
+        database_id = -reminder_id - 1 if is_medicine_alarm else reminder_id
+        if database_id < 1:
+            raise ValueError("Dose reminder was not found.")
+        reminder_table = (
+            "medicine_alarm_reminders" if is_medicine_alarm else "dose_reminders"
+        )
         with self._connect() as connection:
             row = connection.execute(
-                """SELECT status, due_at, snoozed_until
-                   FROM dose_reminders WHERE id = ?""",
-                (reminder_id,),
+                f"""SELECT status, due_at, snoozed_until
+                    FROM {reminder_table} WHERE id = ?""",
+                (database_id,),
             ).fetchone()
             if row is None:
                 raise ValueError("Dose reminder was not found.")
@@ -747,15 +952,16 @@ class CabinetStore:
                     max(now, scheduled) + timedelta(minutes=10)
                 ).isoformat(timespec="seconds")
                 connection.execute(
-                    """UPDATE dose_reminders SET snoozed_until = ?, updated_at = ?
-                       WHERE id = ?""",
-                    (snoozed_until, now.isoformat(timespec="seconds"), reminder_id),
+                    f"""UPDATE {reminder_table}
+                        SET snoozed_until = ?, updated_at = ? WHERE id = ?""",
+                    (snoozed_until, now.isoformat(timespec="seconds"), database_id),
                 )
             else:
                 connection.execute(
-                    """UPDATE dose_reminders SET status = ?, snoozed_until = '',
-                       updated_at = ? WHERE id = ?""",
-                    (action, now.isoformat(timespec="seconds"), reminder_id),
+                    f"""UPDATE {reminder_table}
+                        SET status = ?, snoozed_until = '', updated_at = ?
+                        WHERE id = ?""",
+                    (action, now.isoformat(timespec="seconds"), database_id),
                 )
 
     def dose_history(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -770,7 +976,24 @@ class CabinetStore:
                    ORDER BY d.due_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-            return [dict(row) for row in rows]
+            alarm_rows = connection.execute(
+                """SELECT r.id, r.due_at, r.status, r.snoozed_until,
+                          m.name, m.strength, 'Scheduled alarm' AS dose,
+                          '' AS instructions
+                   FROM medicine_alarm_reminders r
+                   JOIN medicine_alarm_schedules s ON s.id = r.schedule_id
+                   JOIN medicines m ON m.id = s.medicine_id
+                   WHERE r.status != 'pending'
+                   ORDER BY r.due_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            history = [dict(row) for row in rows]
+            for row in alarm_rows:
+                history_item = dict(row)
+                history_item["id"] = -int(history_item["id"]) - 1
+                history.append(history_item)
+            history.sort(key=lambda item: item["due_at"], reverse=True)
+            return history[:limit]
 
     def stock_history(self, medicine_id: int) -> list[dict[str, Any]]:
         with self._connect() as connection:

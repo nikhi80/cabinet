@@ -47,15 +47,20 @@ Cabinet/
    birth, gender selection, and feature preferences in the active local profile.
    Returning profiles with setup already complete go straight to Cabinet.
 4. **Inventory:** use **Medicines → Add** to create a record. Search, edit,
-   remove, adjust quantity with `+1`/`−1`, and inspect stock history.
+   remove, adjust quantity with `+1`/`−1`, and inspect stock history. When
+   adding a medicine, optionally select **Add a daily alarm**, enter one or
+   more 24-hour times and an end date; on Android, Cabinet will notify at those
+   times through the selected date.
    **Scan Prescription** opens image capture/upload, local OCR, and an editable
    medicine-by-medicine review. OCR never confirms a field; review the source
    and confirm each card before Cabinet saves inventory or reminders. Exact
    local reminder times are required; Cabinet does not choose dose times.
 5. **Family records and calendar:** save dates from official records under
    **Vaccines**; add user-entered appointments or medicine reminders in
-   **Calendar**. Vaccine due dates and confirmed medicine doses appear there
-   and on Home. Taken, Skip, and Snooze actions are recorded in dose history.
+   **Calendar**. The month view marks upcoming medicine doses, vaccine due
+   dates, and previously recorded vaccine dates. Select a day to see its
+   events. Vaccine given dates remain visible when browsing past months.
+   Taken, Skip, and Snooze actions are recorded in dose history.
 6. **Private Menstruation tracker:** it is optional and must be enabled in setup
    or Settings. Its tab is shown only for Female profiles aged 12 or older.
    Changing the profile can hide the tab without deleting records. On Windows

@@ -297,7 +297,7 @@ class CabinetApp(App):
             "home": HomeScreen(self, name="home"),
             "medicines": MedicinesScreen(self),
             "vaccines": VaccinesScreen(self),
-            "calendar": CalendarScreen(self, name="calendar"),
+            "calendar": CalendarScreen(self),
             "settings": SettingsScreen(self, name="settings"),
             "setup": SetupScreen(self),
             "welcome": WelcomeScreen(self, name="welcome"),
