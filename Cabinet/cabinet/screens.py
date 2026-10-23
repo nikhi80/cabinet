@@ -182,10 +182,31 @@ class CabinetScreen(Screen):
         )
         content.bind(minimum_height=content.setter("height"))
         inputs = {}
+
+        def form_label(text):
+            label = Label(
+                text=text,
+                size_hint_y=None,
+                height=dp(24),
+                font_size=dp(12),
+                bold=True,
+                color=self.palette["muted"],
+                halign="left",
+                valign="middle",
+                shorten=True,
+                shorten_from="right",
+            )
+            label.bind(
+                width=lambda widget, width: setattr(
+                    widget, "text_size", (width, None)
+                )
+            )
+            return label
+
         for field in fields:
             key, label_text, hint, input_filter = field[:4]
             initial_value = field[4] if len(field) > 4 else ""
-            content.add_widget(self.label(label_text, 12, True, self.palette["muted"], dp(20)))
+            content.add_widget(form_label(label_text))
             widget = TextInput(
                 hint_text=hint,
                 text=initial_value,
@@ -229,20 +250,20 @@ class CabinetScreen(Screen):
                 orientation="vertical",
                 size_hint_y=None,
                 height=0,
+            )
+            optional_fields_box = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
                 spacing=dp(9),
             )
-            optional_widgets = []
+            optional_fields_box.bind(
+                minimum_height=optional_fields_box.setter("height")
+            )
             for field in optional_fields:
                 key, label_text, hint, input_filter = field[:4]
                 initial_value = field[4] if len(field) > 4 else ""
-                label_widget = self.label(
-                    label_text,
-                    12,
-                    True,
-                    self.palette["muted"],
-                    dp(20),
-                )
-                optional_container.add_widget(label_widget)
+                label_widget = form_label(label_text)
+                optional_fields_box.add_widget(label_widget)
                 widget = TextInput(
                     hint_text=hint,
                     text=initial_value,
@@ -257,17 +278,20 @@ class CabinetScreen(Screen):
                     input_filter=input_filter,
                 )
                 inputs[key] = widget
-                optional_container.add_widget(widget)
-                optional_widgets.extend((label_widget, widget))
+                optional_fields_box.add_widget(widget)
+
+            optional_container.add_widget(optional_fields_box)
 
             def set_optional_visibility(_checkbox, active):
                 optional_container.height = (
-                    sum(widget.height + optional_container.spacing
-                        for widget in optional_widgets)
-                    if active
-                    else 0
+                    optional_fields_box.height if active else 0
                 )
 
+            def update_optional_height(_widget, height):
+                if alarm_checkbox.active:
+                    optional_container.height = height
+
+            optional_fields_box.bind(height=update_optional_height)
             alarm_checkbox.bind(active=set_optional_visibility)
             content.add_widget(optional_container)
             content.add_widget(
