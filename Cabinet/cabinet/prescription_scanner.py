@@ -216,10 +216,24 @@ def read_prescription_text(image_path: str | Path) -> str:
         autoclass = getattr(jnius, "autoclass")
         java_exception = getattr(jnius, "JavaException")
         recognizer = None
+        bitmap = None
         try:
-            bitmap = autoclass("android.graphics.BitmapFactory").decodeFile(
-                str(image_path)
-            )
+            bitmap_factory = autoclass("android.graphics.BitmapFactory")
+            bitmap_options = autoclass("android.graphics.BitmapFactory$Options")()
+            bitmap_options.inJustDecodeBounds = True
+            bitmap_factory.decodeFile(str(image_path), bitmap_options)
+            if bitmap_options.outWidth <= 0 or bitmap_options.outHeight <= 0:
+                raise RuntimeError("Android couldn't decode this prescription image.")
+            max_dimension = 2048
+            sample_size = 1
+            while (
+                bitmap_options.outWidth // sample_size > max_dimension
+                or bitmap_options.outHeight // sample_size > max_dimension
+            ):
+                sample_size *= 2
+            bitmap_options.inJustDecodeBounds = False
+            bitmap_options.inSampleSize = sample_size
+            bitmap = bitmap_factory.decodeFile(str(image_path), bitmap_options)
             if bitmap is None:
                 raise RuntimeError("Android couldn't decode this prescription image.")
             input_image = autoclass(
@@ -251,6 +265,8 @@ def read_prescription_text(image_path: str | Path) -> str:
                     raise RuntimeError(
                         f"Android ML Kit could not close the OCR session: {error}"
                     ) from error
+            if bitmap is not None and not bitmap.isRecycled():
+                bitmap.recycle()
 
     if platform not in {"win", "linux", "macosx"}:
         raise RuntimeError(

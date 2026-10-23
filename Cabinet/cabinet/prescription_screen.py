@@ -408,8 +408,12 @@ class PrescriptionScreen(CabinetScreen):
                     on_selection=self._mobile_file_selected,
                     filters=["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp"],
                 )
-            except (NotImplementedError, OSError) as error:
-                self._show_error(f"Cabinet couldn't open the image picker: {error}")
+            except Exception:
+                logger.exception("Android image picker failed")
+                self._show_error(
+                    "Cabinet couldn't open the image picker. Try another image or "
+                    "restart the app."
+                )
             return
 
         chooser = FileChooserListView(
@@ -445,23 +449,59 @@ class PrescriptionScreen(CabinetScreen):
                 "On this desktop build, use Upload / replace image."
             )
             return
-        try:
-            from plyer import camera
-        except ImportError as error:
-            self._show_error("Camera support is unavailable. Install Plyer in the Android build.")
-            logger.error("Plyer camera is unavailable: %s", error)
-            return
         destination = Path(self.app.user_data_dir) / "prescriptions" / "capture.jpg"
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         def completed(path):
             if path:
-                Clock.schedule_once(lambda _dt: self._set_image(path), 0)
+                Clock.schedule_once(
+                    lambda _dt: self._set_captured_image(path),
+                    0,
+                )
+
+        def open_camera():
+            try:
+                from plyer import camera
+
+                camera.take_picture(
+                    filename=str(destination),
+                    on_complete=completed,
+                )
+            except Exception:
+                logger.exception("Android camera launch failed")
+                self._show_error(
+                    "Cabinet couldn't open the camera. Check camera permission "
+                    "and try again."
+                )
 
         try:
-            camera.take_picture(filename=str(destination), on_complete=completed)
-        except (NotImplementedError, OSError) as error:
-            self._show_error(f"Cabinet couldn't start the camera: {error}")
+            from android.permissions import check_permission, request_permissions
+
+            if check_permission("android.permission.CAMERA"):
+                open_camera()
+            else:
+                request_permissions(
+                    ["android.permission.CAMERA"],
+                    lambda _permissions, grants: (
+                        open_camera()
+                        if grants and all(grants)
+                        else self._show_error(
+                            "Camera permission is required to take a prescription photo."
+                        )
+                    ),
+                )
+        except Exception:
+            logger.exception("Android camera permission check failed")
+            self._show_error(
+                "Cabinet couldn't request camera access. Use Upload / replace image instead."
+            )
+
+    def _set_captured_image(self, path: str) -> None:
+        try:
+            self._set_image(path)
+        except (OSError, ValueError) as error:
+            logger.exception("Couldn't open the captured prescription image")
+            self._show_error(f"Cabinet couldn't open the captured image: {error}")
 
     def _set_image(self, path: str) -> None:
         selected = Path(path)
@@ -492,7 +532,7 @@ class PrescriptionScreen(CabinetScreen):
         def worker():
             try:
                 text = read_prescription_text(image_path)
-            except (RuntimeError, OSError, ValueError) as error:
+            except Exception as error:
                 logger.exception("Prescription OCR failed")
                 Clock.schedule_once(
                     lambda _dt, message=str(error), token=request_id:
