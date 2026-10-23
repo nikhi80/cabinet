@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.buildozer/
+bin/
+*.sqlite3
+*.keystore
+*.jks
+local.properties
+firebase_config.json
+firebase_config.json
