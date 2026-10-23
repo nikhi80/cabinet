@@ -22,6 +22,7 @@ from kivy.utils import platform
 
 from cabinet.database import CabinetStore
 from cabinet.auth import AuthenticationError, AuthSession, FirebaseEmailAuth
+from cabinet.notifications import sync_android_dose_notifications
 from cabinet.auth_screens import (
     ForgotPasswordScreen,
     LoginScreen,
@@ -246,6 +247,7 @@ class CabinetApp(App):
         self.store = CabinetStore(self.local_database_path)
         self.current_uid = "local"
         self.current_session: AuthSession | None = None
+        self.notification_error = ""
         self._cycle_store = None
         self._cycle_store_uid = None
         self.auth_client = FirebaseEmailAuth.from_workspace(Path(self.directory))
@@ -618,6 +620,59 @@ class CabinetApp(App):
                 screen.store = self.store
             if hasattr(screen, "app"):
                 screen.app = self
+        self.sync_dose_notifications()
+
+    def sync_dose_notifications(self) -> None:
+        try:
+            enabled = (
+                self.store.get_setting("reminders_enabled", "false") == "true"
+            )
+            permission_granted = sync_android_dose_notifications(
+                self.store,
+                enabled,
+            )
+            if enabled and permission_granted is False:
+                self.notification_error = (
+                    "Android notification permission is off. Allow Cabinet "
+                    "notifications in Android Settings to receive dose alerts."
+                )
+                return
+        except Exception:
+            self.notification_error = (
+                "Cabinet couldn't schedule medicine notifications. "
+                "Restart the app and try again."
+            )
+            logger.exception("Couldn't synchronize medicine dose notifications")
+        else:
+            self.notification_error = ""
+
+    def set_reminders_enabled(self, enabled: bool) -> None:
+        self.store.set_setting("reminders_enabled", str(enabled).lower())
+        self.notification_error = ""
+        self.sync_dose_notifications()
+        if enabled and platform == "android":
+            from jnius import autoclass
+            from android.permissions import request_permissions
+
+            sdk_version = autoclass("android.os.Build$VERSION").SDK_INT
+            if sdk_version >= 33:
+                request_permissions(
+                    ["android.permission.POST_NOTIFICATIONS"],
+                    self._notification_permission_result,
+                )
+
+    def _notification_permission_result(self, _permissions, grants) -> None:
+        if grants and all(grants):
+            self.notification_error = ""
+            self.sync_dose_notifications()
+        else:
+            self.notification_error = (
+                "Android notification permission is off. Allow Cabinet "
+                "notifications in Android Settings to receive dose alerts."
+            )
+        settings_screen = self.screens.get("settings")
+        if settings_screen is not None:
+            Clock.schedule_once(lambda _dt: settings_screen.refresh(), 0)
 
     def _restore_profile_theme(self) -> None:
         self.current_theme = self.store.get_setting("theme", "light")
@@ -858,6 +913,7 @@ class CabinetApp(App):
         return date.today().strftime("%A, %B %d")
 
     def on_resume(self) -> None:
+        self.sync_dose_notifications()
         if self.manager.current in {"setup", "welcome", "login", "signup", "forgot"}:
             self.show_flow(self.manager.current)
         else:

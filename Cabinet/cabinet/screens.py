@@ -13,6 +13,7 @@ from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
+from kivy.utils import platform
 
 from cabinet.preferences import menstruation_tab_enabled
 from cabinet.secure_storage import SecureStorageUnavailable
@@ -260,6 +261,7 @@ class CabinetScreen(Screen):
         except ValueError as error:
             self.show_message("Couldn't update dose", str(error))
             return
+        self.app.sync_dose_notifications()
         for screen_name in ("home", "calendar"):
             screen = self.app.screens.get(screen_name)
             if screen is not None:
@@ -1146,11 +1148,23 @@ class SettingsScreen(CabinetScreen):
 
         notifications = self.card()
         notifications.add_widget(self.label("Notifications", 16, True))
+        notification_description = (
+            "Cabinet can send local notifications for confirmed medicine dose "
+            "times, even while the app is closed. Allow notifications when "
+            "Android asks. Battery-saving settings may delay alerts."
+            if platform == "android"
+            else "Scheduled system notifications are supported in the Android "
+            "app only. Medicine schedules remain visible in Home and Calendar "
+            "on this device."
+        )
         notifications.add_widget(
             self.label(
-                "Medicine dose schedules appear in Home and Calendar while Cabinet is open. "
-                "This build does not guarantee system notifications or reminders while the "
-                "app is closed.",
+                notification_description
+                + (
+                    f"\n\n{self.app.notification_error}"
+                    if self.app.notification_error
+                    else ""
+                ),
                 12,
                 False,
                 self.palette["muted"],
@@ -1161,9 +1175,9 @@ class SettingsScreen(CabinetScreen):
         )
         notifications.add_widget(
             self.button(
-                "Turn reminder preference off"
+                "Turn medicine notifications off"
                 if reminders_enabled
-                else "Turn reminder preference on",
+                else "Turn medicine notifications on",
                 self.toggle_reminder_preference,
                 height=38,
             )
@@ -1383,7 +1397,7 @@ class SettingsScreen(CabinetScreen):
 
     def toggle_reminder_preference(self):
         enabled = self.store.get_setting("reminders_enabled", "false") == "true"
-        self.store.set_setting("reminders_enabled", str(not enabled).lower())
+        self.app.set_reminders_enabled(not enabled)
         self.refresh()
 
     def toggle_feature(self, setting, current_value):

@@ -130,10 +130,12 @@ are AES-GCM-encrypted with a per-profile key held by the Windows or Android OS
 key store. The tracker stays unavailable on iOS until Keychain integration is
 implemented and tested. Backups and exports can contain sensitive ordinary
 health details. Menstruation records are never part of those exports.
-Notifications are preferences only at this stage; no scheduled system
-notifications are implemented. Confirmed dose schedules are local in-app
-records visible in Home and Calendar; background alerts while Cabinet is closed
-are not guaranteed.
+Android can send local notifications for confirmed medicine dose schedules
+while Cabinet is closed. Enable **Medicine dose notifications** in setup or
+Settings and allow Android's notification permission. Android may defer alarms
+in battery-saving modes; exact timing can depend on device settings. Scheduled
+alarms are restored after a device restart. Desktop notifications and calendar
+or vaccine notifications are not implemented.
 
 ### Prescription OCR and reminders
 
@@ -153,8 +155,9 @@ Windows installers are listed by the
 [UB Mannheim Tesseract project](https://github.com/UB-Mannheim/tesseract/wiki).
 Desktop camera capture is not provided by this build; use **Upload / replace
 image**. Reminder times use the device's local clock and are shown in-app.
-Cabinet does not promise alarms, desktop notifications, or background
-execution when closed.
+Android local dose notifications can run while the app is closed, subject to
+notification permission and device battery policies. Desktop notifications
+and background execution are not implemented.
 
 ## Test each stage
 
@@ -205,8 +208,9 @@ Copy the project into WSL's Linux filesystem rather than building under
 WINDOWS_USER="your-windows-user"
 SOURCE="/mnt/c/Users/$WINDOWS_USER/Desktop/python/Cabinet"
 mkdir -p ~/Cabinet
-cp -r "$SOURCE/cabinet" "$SOURCE/main.py" "$SOURCE/requirements.txt" \
-  "$SOURCE/buildozer.spec" ~/Cabinet/
+cp -r "$SOURCE/cabinet" "$SOURCE/src" "$SOURCE/main.py" \
+  "$SOURCE/requirements.txt" "$SOURCE/buildozer.spec" "$SOURCE/icon.png" \
+  "$SOURCE/presplash.png" ~/Cabinet/
 if [ -f "$SOURCE/firebase_config.json" ]; then
   cp "$SOURCE/firebase_config.json" ~/Cabinet/
 fi
@@ -224,6 +228,9 @@ with USB debugging and Android Platform Tools (`adb`) available:
 adb devices
 adb install -r bin/cabinet-0.1.0-arm64-v8a-debug.apk
 ```
+
+The Android startup splash is configured by `presplash.png` and displays
+“Cabinet is loading...” while the app starts.
 
 Alternatively, copy the APK to the phone, open it there, and approve the
 one-time **Install unknown apps** permission for the app used to open it. Only

@@ -392,7 +392,7 @@ class SetupScreen(Screen):
             )
             self._choice(
                 content,
-                "Reminders and notifications (preference only)",
+                "Medicine dose notifications",
                 self.reminders,
                 self._toggle_reminders,
             )
@@ -557,6 +557,7 @@ class SetupScreen(Screen):
             settings,
             confirm_profile_overwrite=popup is not None,
         )
+        self.app.set_reminders_enabled(self.reminders)
         if hasattr(self.app, "configure_navigation"):
             self.app.configure_navigation()
         if popup is not None:

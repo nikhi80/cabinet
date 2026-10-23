@@ -573,7 +573,11 @@ class PrescriptionScreen(CabinetScreen):
                 "Prescription already saved",
                 message,
             )
+            if result["reminders_added"]:
+                self.app.sync_dose_notifications()
             return
+        if any(item["create_reminders"] for item in items):
+            self.app.sync_dose_notifications()
         for screen_name in ("home", "medicines", "calendar"):
             screen = self.app.screens.get(screen_name)
             if screen is not None:

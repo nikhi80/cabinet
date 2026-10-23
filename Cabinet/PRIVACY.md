@@ -20,6 +20,11 @@ project does not integrate Firebase Database or Firestore and has no cloud sync
 or cloud database security rules configured. Local account separation is not a
 substitute for server-side authorization if cloud storage is added later.
 
+When enabled, medicine dose reminders are scheduled as Android local alarms and
+displayed as notifications on the device. Reminder details are stored locally
+by Android so scheduled alarms can be restored after a device restart; they are
+not sent to a notification server.
+
 If enabled, menstruation entries are kept in a separate database and encrypted
 with AES-GCM. Windows uses the Windows Credential Manager to protect the key;
 Android uses Android Keystore. Menstrual records are excluded from medicine and
@@ -31,9 +36,10 @@ tab does not delete data. A device backup, root/jailbreak,
 or compromised operating system can still expose app-private data.
 
 Confirmed dose schedules and their taken, skipped, or missed history are stored
-locally and shown in Home and Calendar. The app does not guarantee operating
-system notifications or reminders while Cabinet is closed. Cabinet does not
-provide medical advice, diagnoses, or vaccination timing recommendations.
+locally and shown in Home and Calendar. Android dose notifications are
+best-effort and may be delayed or blocked by notification permissions or device
+battery settings; Cabinet does not guarantee delivery. Cabinet does not provide
+medical advice, diagnoses, or vaccination timing recommendations.
 Review OCR against the original prescription and confirm medical details with
 a healthcare professional. User-entered dates should be checked against official
 records or a healthcare professional.
