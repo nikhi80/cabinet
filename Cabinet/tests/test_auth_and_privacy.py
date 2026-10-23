@@ -1,10 +1,12 @@
 import base64
 import json
+import os
 import tempfile
 import unittest
 import urllib.error
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from cabinet.auth import (
     AuthenticationError,
@@ -105,6 +107,26 @@ class FirebaseAuthTests(unittest.TestCase):
         auth = FirebaseEmailAuth(api_key="", opener=lambda *_args, **_kwargs: None)
         with self.assertRaisesRegex(AuthenticationError, "Firebase setup"):
             auth.sign_in("person@example.com", "some-password")
+
+    def test_workspace_loader_finds_config_beside_project_when_runtime_dir_differs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime_dir = root / "runtime"
+            project_root = root / "project"
+            package_dir = project_root / "cabinet"
+            package_dir.mkdir(parents=True)
+            (project_root / "firebase_config.json").write_text(
+                json.dumps({"apiKey": "project-api-key"}),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("cabinet.auth.__file__", str(package_dir / "auth.py")),
+                patch.dict(os.environ, {"CABINET_FIREBASE_API_KEY": ""}),
+            ):
+                auth = FirebaseEmailAuth.from_workspace(runtime_dir)
+
+        self.assertEqual(auth.api_key, "project-api-key")
 
 
 class PrivateCycleStoreTests(unittest.TestCase):

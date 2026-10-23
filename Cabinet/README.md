@@ -97,11 +97,13 @@ Welcome screen and Settings. The following setup is required before using them.
    project, add an Android app using the exact package ID configured in
    `buildozer.spec` (`org.cabinethealth.cabinet` until you change the domain),
    then enable **Authentication → Sign-in method → Email/Password**.
-2. Copy `firebase_config.example.json` to `firebase_config.json` and fill in
-   the Firebase project's **Web API key**, project ID, and auth domain from
-   Project settings → General. The API key is a public client identifier, not a
-   private service-account key; restrict it to the app/API services you use.
-   The local file is ignored by Git and must be included in the packaged app.
+2. Copy `firebase_config.example.json` to `firebase_config.json` in the
+   `Cabinet` project folder and fill in the Firebase project's **Web API key**,
+   project ID, and auth domain from Project settings → General. The API key is
+   a public client identifier, not a private service-account key; restrict it
+   to the app/API services you use. The local file is ignored by Git and is
+   included in the packaged app. Cabinet also checks the project folder if the
+   runtime launch directory is different.
 3. For Android, register the actual application ID and SHA-1/SHA-256 signing
    fingerprints in Firebase. Add fingerprints for debug and Play upload/app
    signing certificates as applicable.

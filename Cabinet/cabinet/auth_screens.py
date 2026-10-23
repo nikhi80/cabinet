@@ -262,7 +262,8 @@ class SignupScreen(FlowScreen):
             self.button("Read Privacy Notice & Terms", self.show_policy)
         )
         self.consent_button = self.button(
-            "□  I agree to the Privacy Policy and Terms", self.toggle_consent
+            "I agree to the Privacy Policy and Terms (not accepted)",
+            self.toggle_consent,
         )
         content.add_widget(self.consent_button)
         content.add_widget(
@@ -283,9 +284,17 @@ class SignupScreen(FlowScreen):
     def toggle_consent(self):
         self.accepted = not self.accepted
         self.consent_button.text = (
-            "✓  I agree to the Privacy Policy and Terms"
+            "Agreed to the Privacy Policy and Terms (tap to undo)"
             if self.accepted
-            else "□  I agree to the Privacy Policy and Terms"
+            else "I agree to the Privacy Policy and Terms (not accepted)"
+        )
+        self.consent_button.background_color = (
+            self.app.palette["mint"]
+            if self.accepted
+            else self.app.palette["surface"]
+        )
+        self.consent_button.color = (
+            (1, 1, 1, 1) if self.accepted else self.app.palette["text"]
         )
 
     def submit(self):

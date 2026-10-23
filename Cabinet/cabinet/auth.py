@@ -67,18 +67,26 @@ class FirebaseEmailAuth:
     @classmethod
     def from_workspace(cls, workspace: Path) -> FirebaseEmailAuth:
         """Load the public Firebase web API key from env or a local JSON file."""
-        config_path = workspace / "firebase_config.json"
         api_key = os.environ.get("CABINET_FIREBASE_API_KEY", "")
-        if not api_key and config_path.exists():
-            try:
-                config = json.loads(config_path.read_text(encoding="utf-8"))
-                if not isinstance(config, dict):
-                    raise ValueError("Firebase configuration must be a JSON object.")
-                api_key = str(config.get("apiKey", ""))
-            except (OSError, ValueError, json.JSONDecodeError) as error:
-                raise AuthenticationError(
-                    "Firebase configuration could not be read. Check firebase_config.json."
-                ) from error
+        if not api_key:
+            project_root = Path(__file__).resolve().parent.parent
+            config_paths = dict.fromkeys(
+                (workspace / "firebase_config.json", project_root / "firebase_config.json")
+            )
+            for config_path in config_paths:
+                if not config_path.exists():
+                    continue
+                try:
+                    config = json.loads(config_path.read_text(encoding="utf-8"))
+                    if not isinstance(config, dict):
+                        raise ValueError("Firebase configuration must be a JSON object.")
+                    api_key = str(config.get("apiKey", "")).strip()
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    raise AuthenticationError(
+                        "Firebase configuration could not be read. Check firebase_config.json."
+                    ) from error
+                if api_key:
+                    break
         return cls(api_key=api_key)
 
     def sign_up(self, email: str, password: str) -> AuthSession:

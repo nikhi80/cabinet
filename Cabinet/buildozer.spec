@@ -6,6 +6,7 @@ source.dir = .
 source.include_exts = py,kv,png,jpg,jpeg,json,atlas,ttf,otf,txt,db,sqlite,webp
 source.exclude_dirs = tests,bin,.buildozer,.github,__pycache__
 version = 1.0
+icon.filename = %(source.dir)s/icon.png
 requirements = python3,kivy,plyer,sqlite3,openssl
 orientation = portrait
 fullscreen = 0
