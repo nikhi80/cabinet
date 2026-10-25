@@ -1,4 +1,3 @@
-
 name: Build Cabinet APK
 
 on:
@@ -46,41 +45,43 @@ jobs:
           python -m pip install --upgrade "pip<23" setuptools
           python -m pip install "cython==0.29.36" buildozer
 
-      - name: Check Android manifest configuration
-        working-directory: Cabinet
-        run: |
-          echo "Checking repository files for custom manifest arguments..."
-          grep -R -n \
-            --exclude-dir=.git \
-            --exclude-dir=.buildozer \
-            --exclude-dir=bin \
-            -E 'extra-manifest-xml|extra-manifest-application-arguments|android\.extra_manifest_xml|android\.extra_manifest_application_arguments' \
-            . || true
-
       - name: Build Cabinet APK
+        id: build
+        continue-on-error: true
         working-directory: Cabinet
         run: |
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
-      - name: Show manifest errors if build fails
-        if: failure()
+      - name: Find Android manifest error
+        if: always()
         working-directory: Cabinet
         run: |
-          if [ -f build.log ]; then
-            echo "========== ANDROID MANIFEST / GRADLE ERRORS =========="
-            grep -n -B 10 -A 15 -E \
-              'ManifestMerger|Error parsing|AndroidManifest\.xml|ParseError|failed to parse|processDebugMainManifest|AAPT:|What went wrong:|FAILURE: Build failed' \
-              build.log || true
+          echo "========== MANIFEST ERRORS =========="
 
-            echo "========== LAST 150 LOG LINES =========="
-            tail -n 150 build.log
-          else
-            echo "build.log was not created."
+          if [ -f build.log ]; then
+            grep -n -B 25 -A 40 -E \
+              'ManifestMerger|manifest merger failed|AndroidManifest.xml|ParseError|What went wrong|Execution failed|Caused by:|error:' \
+              build.log || true
           fi
 
+          echo "========== MANIFEST MERGER REPORTS =========="
+
+          find .buildozer -type f \
+            \( -iname '*manifest*report*' -o -iname '*manifest*log*' \) \
+            -print 2>/dev/null || true
+
+          echo "========== CUSTOM MANIFEST SETTINGS =========="
+
+          grep -R -n \
+            --exclude-dir=.git \
+            --exclude-dir=.buildozer \
+            --exclude-dir=bin \
+            -E 'DoseAlarmReceiver|DoseBootReceiver|extra_manifest' \
+            . || true
+
       - name: Upload APK
-        if: success()
+        if: success() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Cabinet-APK
@@ -88,3 +89,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Mark build as failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
