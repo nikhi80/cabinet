@@ -1,4 +1,4 @@
-```ini
+
 [app]
 
 # Application information
@@ -45,4 +45,4 @@ warn_on_root = 1
 
 log_level = 2
 warn_on_root = 1
-```
+
