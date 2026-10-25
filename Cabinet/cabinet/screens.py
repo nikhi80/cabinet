@@ -16,10 +16,6 @@ from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
-from kivy.utils import platform
-
-from cabinet.preferences import menstruation_tab_enabled
-from cabinet.secure_storage import SecureStorageUnavailable
 
 
 class CabinetScreen(Screen):
@@ -222,30 +218,30 @@ class CabinetScreen(Screen):
             )
             inputs[key] = widget
             content.add_widget(widget)
-        alarm_checkbox = None
+        schedule_checkbox = None
         if optional_fields:
-            alarm_row = BoxLayout(
+            schedule_row = BoxLayout(
                 size_hint_y=None,
                 height=dp(42),
                 spacing=dp(8),
             )
-            alarm_checkbox = CheckBox(
+            schedule_checkbox = CheckBox(
                 active=False,
                 size_hint=(None, None),
                 size=(dp(32), dp(32)),
                 color=self.palette["mint"],
             )
-            alarm_row.add_widget(alarm_checkbox)
-            alarm_row.add_widget(
+            schedule_row.add_widget(schedule_checkbox)
+            schedule_row.add_widget(
                 self.label(
-                    "Add a daily alarm",
+                    "Add an in-app dose schedule",
                     13,
                     True,
                     self.palette["text"],
                     dp(36),
                 )
             )
-            content.add_widget(alarm_row)
+            content.add_widget(schedule_row)
             optional_container = BoxLayout(
                 orientation="vertical",
                 size_hint_y=None,
@@ -288,21 +284,16 @@ class CabinetScreen(Screen):
                 )
 
             def update_optional_height(_widget, height):
-                if alarm_checkbox.active:
+                if schedule_checkbox.active:
                     optional_container.height = height
 
             optional_fields_box.bind(height=update_optional_height)
-            alarm_checkbox.bind(active=set_optional_visibility)
+            schedule_checkbox.bind(active=set_optional_visibility)
             content.add_widget(optional_container)
             content.add_widget(
                 self.label(
-                    (
-                        "Choose exact 24-hour times and an end date. Android "
-                        "notifications repeat daily through that date."
-                        if platform == "android"
-                        else "Choose exact 24-hour times and an end date. The "
-                        "schedule appears in Calendar; system alarms are Android-only."
-                    ),
+                    "Choose dose times and an end date. Scheduled doses appear "
+                    "in Home and Calendar; no system notifications are sent.",
                     11,
                     False,
                     self.palette["muted"],
@@ -324,8 +315,8 @@ class CabinetScreen(Screen):
 
         def submit(*_):
             values = {key: widget.text.strip() for key, widget in inputs.items()}
-            if alarm_checkbox is not None:
-                values["_optional_enabled"] = alarm_checkbox.active
+            if schedule_checkbox is not None:
+                values["_optional_enabled"] = schedule_checkbox.active
             try:
                 on_submit(values)
             except (ValueError, OSError) as error:
@@ -381,7 +372,6 @@ class CabinetScreen(Screen):
         except ValueError as error:
             self.show_message("Couldn't update dose", str(error))
             return
-        self.app.sync_dose_notifications()
         for screen_name in ("home", "calendar"):
             screen = self.app.screens.get(screen_name)
             if screen is not None:
@@ -408,9 +398,6 @@ class HomeScreen(CabinetScreen):
             )
         )
         hero.add_widget(self.button("＋  Add a medicine", self.app.open_add_medicine, True))
-        hero.add_widget(
-            self.button("Scan Prescription", self.app.open_prescription_scanner, height=42)
-        )
         content.add_widget(hero)
 
         medicines_enabled = (
@@ -488,7 +475,7 @@ class HomeScreen(CabinetScreen):
             dose_card = self.card()
             dose_card.add_widget(
                 self.label(
-                    "No upcoming in-app doses. Confirm a prescription to add a schedule.",
+                    "No upcoming in-app doses.",
                     12,
                     False,
                     self.palette["muted"],
@@ -523,49 +510,6 @@ class HomeScreen(CabinetScreen):
                 self.label(detail, 12, False, self.palette["muted"], dp(20))
             )
         content.add_widget(upcoming_card)
-
-        if menstruation_tab_enabled(self.store):
-            cycle_card = self.card(self.palette["blue_soft"])
-            cycle_card.add_widget(
-                self.label("Your private menstruation history", 15, True, self.palette["text"])
-            )
-            try:
-                records = self.app.get_cycle_store().list_periods()
-            except (SecureStorageUnavailable, OSError, ValueError) as error:
-                cycle_card.add_widget(
-                    self.label(
-                        f"Private storage is unavailable: {error}",
-                        12,
-                        False,
-                        self.palette["danger"],
-                    )
-                )
-            else:
-                if records:
-                    cycle_card.add_widget(
-                        self.label(
-                            f"Last recorded start: {records[0]['first_day']}",
-                            12,
-                            False,
-                            self.palette["muted"],
-                        )
-                    )
-                else:
-                    cycle_card.add_widget(
-                        self.label(
-                            "No period dates recorded yet.",
-                            12,
-                            False,
-                            self.palette["muted"],
-                        )
-                    )
-                cycle_card.add_widget(
-                    self.button(
-                        "Open private tracker",
-                        lambda: self.app.navigate("cycle"),
-                    )
-                )
-            content.add_widget(cycle_card)
 
         quick = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         if medicines_enabled:
@@ -613,9 +557,6 @@ class MedicinesScreen(CabinetScreen):
         top.add_widget(self.button("Search", lambda: self.apply_search(search), height=42))
         top.add_widget(self.button("+ Add", self.open_medicine_form, True))
         self.body.add_widget(top)
-        self.body.add_widget(
-            self.button("Scan Prescription", self.app.open_prescription_scanner, True)
-        )
         content = self.scroll()
         medicines = self.store.list_medicines(self.search_text)
         if not medicines:
@@ -739,21 +680,21 @@ class MedicinesScreen(CabinetScreen):
             self._save_new_medicine,
             optional_fields=[
                 (
-                    "alarm_times",
-                    "Alarm times (24-hour, comma-separated)",
+                    "schedule_times",
+                    "Dose times (24-hour, comma-separated)",
                     "08:00, 20:00",
                     None,
                 ),
                 (
-                    "alarm_start_date",
-                    "Alarm start date",
+                    "schedule_start_date",
+                    "Schedule start date",
                     "YYYY-MM-DD",
                     None,
                     date.today().isoformat(),
                 ),
                 (
-                    "alarm_end_date",
-                    "Repeat through (end date)",
+                    "schedule_end_date",
+                    "Schedule end date",
                     "YYYY-MM-DD",
                     None,
                 ),
@@ -761,11 +702,11 @@ class MedicinesScreen(CabinetScreen):
         )
 
     def _save_new_medicine(self, values):
-        alarm_enabled = values.pop("_optional_enabled", False)
-        alarm_times = None
-        if alarm_enabled:
-            alarm_times = [
-                value.strip() for value in values["alarm_times"].split(",")
+        schedule_enabled = values.pop("_optional_enabled", False)
+        schedule_times = None
+        if schedule_enabled:
+            schedule_times = [
+                value.strip() for value in values["schedule_times"].split(",")
             ]
         self.store.add_medicine(
             values["name"],
@@ -775,12 +716,10 @@ class MedicinesScreen(CabinetScreen):
             values["form"],
             values["expiry_date"],
             values["notes"],
-            alarm_start_date=values.get("alarm_start_date", ""),
-            alarm_end_date=values.get("alarm_end_date", ""),
-            alarm_times=alarm_times,
+            schedule_start_date=values.get("schedule_start_date", ""),
+            schedule_end_date=values.get("schedule_end_date", ""),
+            schedule_times=schedule_times,
         )
-        if alarm_enabled:
-            self.app.set_reminders_enabled(True)
 
     def edit_medicine(self, medicine):
         fields = [
@@ -827,8 +766,6 @@ class MedicinesScreen(CabinetScreen):
                     )
                 },
             )
-            self.app.sync_dose_notifications()
-
         return self.show_form("Update medicine", fields, update, "Update")
 
     def change_stock(self, medicine, change):
@@ -966,7 +903,6 @@ class MedicinesScreen(CabinetScreen):
 
         def confirm():
             self.store.delete_medicine(medicine["id"])
-            self.app.sync_dose_notifications()
             popup.dismiss()
             self.refresh()
 
@@ -1504,44 +1440,6 @@ class SettingsScreen(CabinetScreen):
         data.add_widget(self.button("Export medicine list (CSV)", self.export_csv, height=40))
         content.add_widget(data)
 
-        notifications = self.card()
-        notifications.add_widget(self.label("Notifications", 16, True))
-        notification_description = (
-            "Cabinet can send local notifications for confirmed medicine dose "
-            "times, even while the app is closed. Allow notifications when "
-            "Android asks. Battery-saving settings may delay alerts."
-            if platform == "android"
-            else "Scheduled system notifications are supported in the Android "
-            "app only. Medicine schedules remain visible in Home and Calendar "
-            "on this device."
-        )
-        notifications.add_widget(
-            self.label(
-                notification_description
-                + (
-                    f"\n\n{self.app.notification_error}"
-                    if self.app.notification_error
-                    else ""
-                ),
-                12,
-                False,
-                self.palette["muted"],
-            )
-        )
-        reminders_enabled = (
-            self.store.get_setting("reminders_enabled", "false") == "true"
-        )
-        notifications.add_widget(
-            self.button(
-                "Turn medicine notifications off"
-                if reminders_enabled
-                else "Turn medicine notifications on",
-                self.toggle_reminder_preference,
-                height=38,
-            )
-        )
-        content.add_widget(notifications)
-
         note = self.card(self.palette["blue_soft"])
         note.add_widget(self.label("A note on health records", 15, True))
         note.add_widget(
@@ -1587,40 +1485,6 @@ class SettingsScreen(CabinetScreen):
                 )
             )
         content.add_widget(features)
-
-        cycle_enabled = self.store.get_setting("feature_cycle", "false") == "true"
-        cycle = self.card()
-        cycle.add_widget(self.label("Private Menstruation tracker", 16, True))
-        cycle.add_widget(
-            self.label(
-                "Period history is stored in a separate encrypted database. "
-                "On Windows its key is protected by Credential Manager; on Android "
-                "it uses Android Keystore. Tracking is opt-in and the data is not "
-                "included in inventory exports. The navigation tab is shown only "
-                "for Female profiles aged 12 or older. "
-                "Hiding it never deletes records.",
-                12,
-                False,
-                self.palette["muted"],
-            )
-        )
-        cycle.add_widget(
-            self.button(
-                "Disable tracker" if cycle_enabled else "Enable private tracker",
-                self.toggle_cycle,
-                primary=not cycle_enabled,
-                height=40,
-            )
-        )
-        if cycle_enabled:
-            cycle.add_widget(
-                self.button(
-                    "Delete all cycle records",
-                    self.confirm_delete_cycle_records,
-                    height=40,
-                )
-            )
-        content.add_widget(cycle)
 
         if self.app.current_session is not None:
             account = self.card()
@@ -1677,45 +1541,6 @@ class SettingsScreen(CabinetScreen):
             )
             content.add_widget(account)
 
-    def toggle_cycle(self):
-        enabled = self.store.get_setting("feature_cycle", "false") == "true"
-        if enabled:
-            self.store.set_setting("feature_cycle", "false")
-            self.app.configure_navigation()
-            self.refresh()
-            return
-        try:
-            self.app.get_cycle_store()
-        except (SecureStorageUnavailable, OSError, ValueError) as error:
-            self.show_message("Secure storage unavailable", str(error))
-            return
-        self.store.set_setting("feature_cycle", "true")
-        self.app.configure_navigation()
-        self.refresh()
-
-    def confirm_delete_cycle_records(self):
-        self.confirm_action(
-            "Delete all cycle records?",
-            "This permanently erases the private cycle database and its encryption key.",
-            self.delete_cycle_records,
-        )
-
-    def delete_cycle_records(self):
-        try:
-            self.app.get_cycle_store().erase_all()
-        except (SecureStorageUnavailable, OSError, ValueError) as error:
-            self.show_message("Couldn't erase records", str(error))
-            return
-        self.app._cycle_store = None
-        self.app._cycle_store_uid = None
-        try:
-            self.app.get_cycle_store()
-        except (SecureStorageUnavailable, OSError, ValueError) as error:
-            self.show_message("Private tracker disabled", str(error))
-            return
-        self.show_message("Records erased", "Private cycle history was deleted.")
-        self.refresh()
-
     def confirm_delete_account(self):
         self.confirm_action(
             "Delete Cabinet account?",
@@ -1752,11 +1577,6 @@ class SettingsScreen(CabinetScreen):
         buttons.add_widget(self.button("Continue", confirm, True))
         content.add_widget(buttons)
         popup.open()
-
-    def toggle_reminder_preference(self):
-        enabled = self.store.get_setting("reminders_enabled", "false") == "true"
-        self.app.set_reminders_enabled(not enabled)
-        self.refresh()
 
     def toggle_feature(self, setting, current_value):
         self.store.set_setting(setting, str(not current_value).lower())

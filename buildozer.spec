@@ -8,7 +8,7 @@ source.include_exts = py,kv,png,jpg,jpeg,json,atlas,ttf,otf,txt,db,sqlite,webp
 
 version = 1.0
 
-requirements = python3,kivy,cryptography,pillow,numpy,plyer,pytesseract
+requirements = python3,kivy
 
 orientation = portrait
 fullscreen = 0

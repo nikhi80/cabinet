@@ -14,15 +14,10 @@ Cabinet/
 │   ├── app.py            # Kivy app shell and local-mode navigation
 │   ├── auth.py           # Firebase email authentication
 │   ├── auth_screens.py   # Welcome, Firebase login, signup, and reset screens
-│   ├── cycle.py          # Private cycle records and estimates
-│   ├── cycle_screen.py   # Optional cycle history UI
 │   ├── database.py       # Local SQLite inventory, vaccines, calendar
-│   ├── onboarding.py     # Five-step first-run setup
+│   ├── onboarding.py     # Four-step first-run setup
 │   ├── preferences.py    # Setup preference persistence
-│   ├── prescription_scanner.py # Local OCR and conservative field extraction
-│   ├── prescription_screen.py  # Image capture, review, and confirmation UI
 │   ├── screens.py        # Home, inventory, vaccines, calendar, settings
-│   ├── secure_storage.py # OS-key protected cycle encryption
 │   └── theme.py          # Cream, forest teal, gold themes
 ├── tests/
 │   ├── test_auth_and_privacy.py
@@ -43,30 +38,19 @@ Cabinet/
 2. **Welcome and accounts:** choose **Create an account**, **Log in**, or
    **Continue on this device**. Firebase is used only to verify an email
    account; records remain on this device and do not sync to a server.
-3. **First-run setup:** the five-step wizard stores a display name, date of
-   birth, gender selection, and feature preferences in the active local profile.
+3. **First-run setup:** the four-step wizard stores a display name and feature
+   preferences in the active local profile.
    Returning profiles with setup already complete go straight to Cabinet.
 4. **Inventory:** use **Medicines → Add** to create a record. Search, edit,
-   remove, adjust quantity with `+1`/`−1`, and inspect stock history. When
-   adding a medicine, optionally select **Add a daily alarm**, enter one or
-   more 24-hour times and an end date; on Android, Cabinet will notify at those
-   times through the selected date.
-   **Scan Prescription** opens image capture/upload, local OCR, and an editable
-   medicine-by-medicine review. OCR never confirms a field; review the source
-   and confirm each card before Cabinet saves inventory or reminders. Exact
-   local reminder times are required; Cabinet does not choose dose times.
+   remove, adjust quantity with `+1`/`−1`, and inspect stock history. Optional
+   in-app dose schedules appear in Home and Calendar but do not send system
+   notifications.
 5. **Family records and calendar:** save dates from official records under
-   **Vaccines**; add user-entered appointments or medicine reminders in
-   **Calendar**. The month view marks upcoming medicine doses, vaccine due
-   dates, and previously recorded vaccine dates. Select a day to see its
-   events. Vaccine given dates remain visible when browsing past months.
-   Taken, Skip, and Snooze actions are recorded in dose history.
-6. **Private Menstruation tracker:** it is optional and must be enabled in setup
-   or Settings. Its tab is shown only for Female profiles aged 12 or older.
-   Changing the profile can hide the tab without deleting records. On Windows
-   the AES-GCM key uses Credential Manager; on Android it uses Android Keystore.
-   Its separate database is excluded from exports.
-7. **Settings:** update preferences, switch light/dark mode, and back up or
+   **Vaccines** and add user-entered appointments in **Calendar**. The month
+   view marks existing in-app medicine doses, vaccine due dates, and recorded
+   vaccine dates. Select a day to see its events. Taken, Skip, and Snooze
+   actions are recorded in dose history.
+6. **Settings:** update preferences, switch light/dark mode, and back up or
    export ordinary local records.
 
 ### Windows desktop development
@@ -116,8 +100,7 @@ Welcome screen and Settings. The following setup is required before using them.
    a test project/account.
 
 Cabinet stores each signed-in account's ordinary records in a separate local
-database keyed by Firebase UID. Private menstruation records are kept in a
-separate encrypted local database keyed to that UID. Firebase Database/Firestore
+database keyed by Firebase UID. Firebase Database/Firestore
 is not integrated, so no cloud security rules or cloud sync are configured.
 
 **Google sign-in:** no Google sign-in button is shown. Kivy does not itself
@@ -130,39 +113,10 @@ action; do not put client secrets or service-account keys in the app.
 ### Privacy and limits
 
 See [PRIVACY.md](./PRIVACY.md). Records are stored in the application's
-private data folder and are not cloud-synchronized. Menstruation entries alone
-are AES-GCM-encrypted with a per-profile key held by the Windows or Android OS
-key store. The tracker stays unavailable on iOS until Keychain integration is
-implemented and tested. Backups and exports can contain sensitive ordinary
-health details. Menstruation records are never part of those exports.
-Android can send local notifications for confirmed medicine dose schedules
-while Cabinet is closed. Enable **Medicine dose notifications** in setup or
-Settings and allow Android's notification permission. Android may defer alarms
-in battery-saving modes; exact timing can depend on device settings. Scheduled
-alarms are restored after a device restart. Desktop notifications and calendar
-or vaccine notifications are not implemented.
-
-### Prescription OCR and reminders
-
-OCR runs locally. The Android build uses bundled Google ML Kit Latin text
-recognition; prescription images are not sent to an OCR service. The Android
-camera button uses Plyer where the device supports camera capture. On Windows,
-install the Python requirements and the separate Tesseract OCR engine, then
-make `tesseract.exe` available on `PATH` and restart Cabinet:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-If Tesseract is installed outside `PATH`, configure its executable in the
-Tesseract installation or add its install folder to the Windows user `PATH`.
-Windows installers are listed by the
-[UB Mannheim Tesseract project](https://github.com/UB-Mannheim/tesseract/wiki).
-Desktop camera capture is not provided by this build; use **Upload / replace
-image**. Reminder times use the device's local clock and are shown in-app.
-Android local dose notifications can run while the app is closed, subject to
-notification permission and device battery policies. Desktop notifications
-and background execution are not implemented.
+private data folder and are not cloud-synchronized. Backups and exports can
+contain sensitive health details. Existing in-app dose schedules and history
+remain local and visible in Home and Calendar; Cabinet does not send system
+notifications while closed.
 
 ## Test each stage
 
@@ -172,26 +126,23 @@ The tests use the project environment:
 python -m unittest discover -s tests -v
 ```
 
-They cover inventory and stock history, alerts, prescription extraction and
-confirmation, purchase-safe stock updates, reminder scheduling and history,
-Firebase request/validation behavior using mocked responses, setup preferences,
-profile eligibility, cycle date estimates, encrypted storage boundaries, and
-data deletion. For UI smoke testing run `python main.py`; check Welcome, account
-and local-device flows, profile setup, medicines, vaccines, calendar, conditional
-Menstruation tab, tracker enable/disable, and Settings. Test Firebase actions
-only after configuration, using non-sensitive sample accounts.
+They cover inventory and stock history, alerts, purchase-safe stock updates,
+in-app dose history, Firebase request/validation behavior using mocked
+responses, setup preferences, and data deletion. For UI smoke testing run
+`python main.py`; check Welcome, account and local-device flows, profile setup,
+medicines, vaccines, calendar, and Settings. Test Firebase actions only after
+configuration, using non-sensitive sample accounts.
 
 ## Data and privacy
 
 Local-device mode makes no authentication network calls. Account creation and
 login contact Firebase Authentication, but health records and profiles remain
 in account-scoped SQLite files in Kivy's private `user_data_dir`; no health data
-is automatically synchronized or uploaded. Menstruation records use their own
-AES-GCM-encrypted account-scoped database. Firebase Database/Firestore is not
+is automatically synchronized or uploaded. Firebase Database/Firestore is not
 integrated, so there are no cloud database rules to deploy. Exported files can
 contain sensitive health information. Copy/share them only using a channel and
-storage location you trust. Notifications are not scheduled by this starter
-release; recorded dates are displayed in the app.
+storage location you trust. Existing in-app dose history remains visible in the
+app; operating-system notifications are not used.
 
 ## Android: build and install on a phone
 
@@ -242,9 +193,8 @@ one-time **Install unknown apps** permission for the app used to open it. Only
 install APKs you built or trust. The package ID is
 `org.cabinethealth.cabinet`; the build currently targets portrait, arm64
 devices, Android API 23 and newer, and API 36. Test the APK on a real phone:
-first launch and setup, offline records, screen sizing, back navigation,
-camera/photo access, prescription OCR, and data retention. A debug APK is for
-testing and is not the Play Store release.
+first launch and setup, offline records, screen sizing, back navigation, and
+data retention. A debug APK is for testing and is not the Play Store release.
 
 ### Publish through Google Play
 
@@ -302,10 +252,9 @@ An iOS app cannot be built, signed, or installed onto an iPhone from this
 Windows setup. You need a Mac with Xcode and Apple's command-line tools. iOS
 uses `kivy-ios` and an Xcode project, not Buildozer or an Android APK. The iOS
 build has not been generated or device-tested, and this project is not yet
-ready to distribute as an iOS app. In particular, verify that `kivy-ios` has
-build recipes for all required Python dependencies (`cryptography`, Pillow, and
-NumPy) and resolve any missing recipes before expecting the Xcode project to
-build.
+ready to distribute as an iOS app. Verify that `kivy-ios` has build recipes for
+the required Python dependencies and resolve any missing recipes before
+expecting the Xcode project to build.
 
 To try an iOS development build on a Mac:
 
@@ -324,10 +273,7 @@ To try an iOS development build on a Mac:
    through App Store Connect. Distribution requires the appropriate Apple
    Developer account, signing, privacy disclosures, and App Review.
 
-The app currently hides the private menstruation tracker on iOS because
-Keychain-backed storage is not implemented. iOS camera/photo picking and
-prescription OCR also need native integration and device testing; prescription
-OCR is only packaged for Android and desktop. Firebase sign-in and all local
-storage behavior must likewise be tested in the generated iOS app before
-distribution. These are platform work still to complete, not steps that can be
-fixed by installing an APK or changing an Xcode setting.
+Firebase sign-in and all local storage behavior must likewise be tested in the
+generated iOS app before distribution. These are platform work still to
+complete, not steps that can be fixed by installing an APK or changing an
+Xcode setting.

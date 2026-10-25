@@ -1,8 +1,2 @@
 # Cross-platform UI. SQLite is included with Python.
 kivy>=2.3.1
-cryptography>=42
-Pillow>=10
-pytesseract>=0.3.13
-numpy>=1.21
-plyer>=2.1.0
-keyring>=25; platform_system == "Windows"

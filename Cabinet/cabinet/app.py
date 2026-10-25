@@ -20,18 +20,15 @@ from kivy.uix.screenmanager import FadeTransition, ScreenManager
 from kivy.uix.widget import Widget
 from kivy.utils import platform
 
-from cabinet.database import CabinetStore
+from cabinet.database import CabinetStore, account_database_path
 from cabinet.auth import AuthenticationError, AuthSession, FirebaseEmailAuth
-from cabinet.notifications import sync_android_dose_notifications
 from cabinet.auth_screens import (
     ForgotPasswordScreen,
     LoginScreen,
     SignupScreen,
     WelcomeScreen,
 )
-from cabinet.cycle import account_database_path, private_store_path
 from cabinet.onboarding import SetupScreen
-from cabinet.preferences import is_menstruation_eligible
 from cabinet.screens import (
     CalendarScreen,
     HomeScreen,
@@ -39,8 +36,6 @@ from cabinet.screens import (
     SettingsScreen,
     VaccinesScreen,
 )
-from cabinet.prescription_screen import PrescriptionScreen
-from cabinet.secure_storage import supports_private_storage
 from cabinet.theme import DARK, LIGHT
 
 logger = logging.getLogger(__name__)
@@ -247,9 +242,6 @@ class CabinetApp(App):
         self.store = CabinetStore(self.local_database_path)
         self.current_uid = "local"
         self.current_session: AuthSession | None = None
-        self.notification_error = ""
-        self._cycle_store = None
-        self._cycle_store_uid = None
         self.auth_client = FirebaseEmailAuth.from_workspace(Path(self.directory))
         self.current_theme = self.store.get_setting("theme", "light")
         self.palette = DARK if self.current_theme == "dark" else LIGHT
@@ -304,7 +296,6 @@ class CabinetApp(App):
             "login": LoginScreen(self, name="login"),
             "signup": SignupScreen(self, name="signup"),
             "forgot": ForgotPasswordScreen(self, name="forgot"),
-            "prescription": PrescriptionScreen(self),
         }
         for name, screen in self.screens.items():
             self.manager.add_widget(screen)
@@ -417,12 +408,10 @@ class CabinetApp(App):
             Rectangle(pos=self.nav.pos, size=self.nav.size)
 
     def navigate(self, name: str) -> None:
-        main_screens = {"home", "medicines", "vaccines", "calendar", "settings", "cycle"}
+        main_screens = {"home", "medicines", "vaccines", "calendar", "settings"}
         if name not in main_screens or name not in self.screens:
             raise ValueError(f"Unknown Cabinet screen: {name}")
         self.configure_navigation()
-        if name == "cycle" and name not in self.nav_buttons:
-            raise ValueError("The Menstruation tab is not enabled for this profile.")
         self.header.height = dp(78)
         self.header.opacity = 1
         self.nav.height = dp(66)
@@ -456,27 +445,6 @@ class CabinetApp(App):
     def configure_navigation(self) -> None:
         if not hasattr(self, "nav"):
             return
-        eligible_profile = supports_private_storage(
-            platform
-        ) and is_menstruation_eligible(
-            self.store.get_setting("gender", ""),
-            self.store.get_setting("date_of_birth", ""),
-        )
-        cycle_screen = self.screens.get("cycle")
-        if eligible_profile and cycle_screen is not None and cycle_screen.owner_uid != self.current_uid:
-            self.manager.remove_widget(self.screens["cycle"])
-            self.screens.pop("cycle")
-            cycle_screen = None
-        if eligible_profile and cycle_screen is None:
-            from cabinet.cycle_screen import CycleScreen
-
-            self.screens["cycle"] = CycleScreen(self)
-            self.manager.add_widget(self.screens["cycle"])
-        elif not eligible_profile and "cycle" in self.screens:
-            cycle_screen = self.screens.pop("cycle")
-            if self.manager.current == "cycle":
-                self.manager.current = "home"
-            self.manager.remove_widget(cycle_screen)
 
         for button in self.nav_buttons.values():
             self.nav.remove_widget(button)
@@ -489,8 +457,6 @@ class CabinetApp(App):
         if self.store.get_setting("feature_vaccines", "true") == "true":
             entries.append(("vaccines", "Vaccines"))
         entries.append(("calendar", "Calendar"))
-        if eligible_profile:
-            entries.append(("cycle", "Menstruation"))
         entries.append(("settings", "Settings"))
         icon_names = {
             "home": "home",
@@ -498,7 +464,6 @@ class CabinetApp(App):
             "vaccines": "vaccine",
             "calendar": "calendar",
             "settings": "settings",
-            "cycle": "calendar",
         }
         for name, label in entries:
             selected = self.manager.current == name
@@ -543,10 +508,10 @@ class CabinetApp(App):
             )
             icon_slot.add_widget(icon)
             caption = Label(
-                text="Menstru\nation" if label == "Menstruation" else label,
+                text=label,
                 size_hint=(1, None),
-                height=dp(28) if label == "Menstruation" else dp(18),
-                font_size=dp(10) if label == "Menstruation" else dp(11),
+                height=dp(18),
+                font_size=dp(11),
                 color=self.palette["text"]
                 if selected
                 else self.palette["muted"],
@@ -573,8 +538,6 @@ class CabinetApp(App):
         self.current_uid = "local"
         self.current_session = None
         self.profile_data_dir = Path(self.user_data_dir) / "local-profile"
-        self._cycle_store = None
-        self._cycle_store_uid = None
         self.store = CabinetStore(self.local_database_path)
         self._bind_store()
         self._restore_profile_theme()
@@ -592,8 +555,6 @@ class CabinetApp(App):
     ) -> None:
         self.current_uid = session.uid
         self.current_session = session
-        self._cycle_store = None
-        self._cycle_store_uid = None
         account_path = account_database_path(self.user_data_dir, session.uid)
         self.profile_data_dir = account_path.parent
         self.store = CabinetStore(account_path)
@@ -620,59 +581,6 @@ class CabinetApp(App):
                 screen.store = self.store
             if hasattr(screen, "app"):
                 screen.app = self
-        self.sync_dose_notifications()
-
-    def sync_dose_notifications(self) -> None:
-        try:
-            enabled = (
-                self.store.get_setting("reminders_enabled", "false") == "true"
-            )
-            permission_granted = sync_android_dose_notifications(
-                self.store,
-                enabled,
-            )
-            if enabled and permission_granted is False:
-                self.notification_error = (
-                    "Android notification permission is off. Allow Cabinet "
-                    "notifications in Android Settings to receive dose alerts."
-                )
-                return
-        except Exception:
-            self.notification_error = (
-                "Cabinet couldn't schedule medicine notifications. "
-                "Restart the app and try again."
-            )
-            logger.exception("Couldn't synchronize medicine dose notifications")
-        else:
-            self.notification_error = ""
-
-    def set_reminders_enabled(self, enabled: bool) -> None:
-        self.store.set_setting("reminders_enabled", str(enabled).lower())
-        self.notification_error = ""
-        self.sync_dose_notifications()
-        if enabled and platform == "android":
-            from jnius import autoclass
-            from android.permissions import request_permissions
-
-            sdk_version = autoclass("android.os.Build$VERSION").SDK_INT
-            if sdk_version >= 33:
-                request_permissions(
-                    ["android.permission.POST_NOTIFICATIONS"],
-                    self._notification_permission_result,
-                )
-
-    def _notification_permission_result(self, _permissions, grants) -> None:
-        if grants and all(grants):
-            self.notification_error = ""
-            self.sync_dose_notifications()
-        else:
-            self.notification_error = (
-                "Android notification permission is off. Allow Cabinet "
-                "notifications in Android Settings to receive dose alerts."
-            )
-        settings_screen = self.screens.get("settings")
-        if settings_screen is not None:
-            Clock.schedule_once(lambda _dt: settings_screen.refresh(), 0)
 
     def _restore_profile_theme(self) -> None:
         self.current_theme = self.store.get_setting("theme", "light")
@@ -748,23 +656,7 @@ class CabinetApp(App):
 
     def logout(self) -> None:
         self.current_session = None
-        self._cycle_store = None
-        self._cycle_store_uid = None
         self.enter_guest_mode()
-
-    def get_cycle_store(self):
-        from cabinet.cycle import MenstrualStore, private_store_path
-        from cabinet.secure_storage import PrivateDataCipher
-
-        uid = self.current_uid or "local"
-        if self._cycle_store is not None and self._cycle_store_uid == uid:
-            return self._cycle_store
-        cipher = PrivateDataCipher(uid, platform)
-        self._cycle_store = MenstrualStore(
-            private_store_path(self.user_data_dir, uid), cipher
-        )
-        self._cycle_store_uid = uid
-        return self._cycle_store
 
     def edit_setup_preferences(self) -> None:
         setup = self.screens["setup"]
@@ -786,8 +678,6 @@ class CabinetApp(App):
 
         def remove_after_provider_delete():
             self.auth_client.delete_account(session.id_token)
-            if private_directory.exists():
-                self.get_cycle_store().erase_all()
             if account_directory.exists():
                 shutil.rmtree(account_directory)
             if private_directory.exists():
@@ -803,9 +693,7 @@ class CabinetApp(App):
         session = self.current_session
         uid = session.uid if session is not None else "local"
         if session is not None:
-            profile_directory = account_database_path(
-                data_root, uid
-            ).parent.resolve()
+            profile_directory = account_database_path(data_root, uid).parent.resolve()
             accounts_root = (data_root / "accounts").resolve()
             if profile_directory.parent != accounts_root:
                 raise ValueError("Account storage path is invalid.")
@@ -828,24 +716,9 @@ class CabinetApp(App):
             data_root / "private-health" / uid
         ).resolve()
         private_root = (data_root / "private-health").resolve()
-        private_database = (
-            private_directory / "menstrual.sqlite3"
-        ).resolve()
-        if (
-            private_directory.parent != private_root
-            or private_database.parent != private_directory
-        ):
+        if private_directory.parent != private_root:
             raise ValueError("Private tracker storage path is invalid.")
 
-        cycle_store = (
-            self._cycle_store
-            if self._cycle_store_uid == uid
-            else None
-        )
-        if cycle_store is None and private_database.exists():
-            cycle_store = self.get_cycle_store()
-        if cycle_store is not None:
-            cycle_store.erase_all()
         if private_directory.exists():
             shutil.rmtree(private_directory)
 
@@ -860,13 +733,6 @@ class CabinetApp(App):
             if profile_directory.exists():
                 shutil.rmtree(profile_directory)
 
-        if session is None:
-            capture_path = data_root / "prescriptions" / "capture.jpg"
-            if capture_path.exists() or capture_path.is_symlink():
-                capture_path.unlink()
-
-        self._cycle_store = None
-        self._cycle_store_uid = None
         self.store = CabinetStore(database_path)
         self._bind_store()
         self._restore_profile_theme()
@@ -893,7 +759,7 @@ class CabinetApp(App):
         current = self.manager.current
         if current in {"setup", "welcome", "login", "signup", "forgot"}:
             self.show_flow(current)
-        elif current in {"home", "medicines", "vaccines", "calendar", "settings", "cycle"}:
+        elif current in {"home", "medicines", "vaccines", "calendar", "settings"}:
             self.navigate(current)
 
     def open_add_medicine(self) -> None:
@@ -904,20 +770,12 @@ class CabinetApp(App):
         self.screens["calendar"].open_appointment_form()
         self.navigate("calendar")
 
-    def open_prescription_scanner(self) -> None:
-        screen = self.screens["prescription"]
-        screen.refresh()
-        self.manager.current = "prescription"
-
     def formatted_today(self) -> str:
         return date.today().strftime("%A, %B %d")
 
     def on_resume(self) -> None:
-        self.sync_dose_notifications()
         if self.manager.current in {"setup", "welcome", "login", "signup", "forgot"}:
             self.show_flow(self.manager.current)
         else:
             self.configure_navigation()
-            if self.manager.current == "cycle" and "cycle" not in self.nav_buttons:
-                self.manager.current = "home"
             self.navigate(self.manager.current)

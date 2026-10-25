@@ -41,15 +41,15 @@ class CabinetStoreTests(unittest.TestCase):
         self.store.update_medicine(medicine_id, expiry_date="")
         self.assertEqual(self.store.list_medicines()[0]["expiry_date"], "")
 
-    def test_new_medicine_can_have_daily_alarm_through_end_date(self):
+    def test_medicine_has_in_app_dose_schedule_through_end_date(self):
         start = date.today() + timedelta(days=2)
         end = start + timedelta(days=1)
         medicine_id = self.store.add_medicine(
             "Daily medicine",
             10,
-            alarm_start_date=start.isoformat(),
-            alarm_end_date=end.isoformat(),
-            alarm_times=["08:00", "20:00"],
+            schedule_start_date=start.isoformat(),
+            schedule_end_date=end.isoformat(),
+            schedule_times=["08:00", "20:00"],
         )
 
         reminders = self.store.list_dose_reminders_between(start, end)
@@ -66,14 +66,14 @@ class CabinetStoreTests(unittest.TestCase):
         self.assertTrue(all(item["id"] < 0 for item in upcoming))
         self.assertEqual(len(upcoming), 4)
 
-    def test_medicine_alarm_can_be_snoozed_and_marked_taken(self):
+    def test_existing_in_app_dose_can_be_snoozed_and_marked_taken(self):
         start = date.today() + timedelta(days=2)
         medicine_id = self.store.add_medicine(
             "Dose medicine",
             1,
-            alarm_start_date=start.isoformat(),
-            alarm_end_date=start.isoformat(),
-            alarm_times=["08:00"],
+            schedule_start_date=start.isoformat(),
+            schedule_end_date=start.isoformat(),
+            schedule_times=["08:00"],
         )
         reminder = self.store.list_dose_reminders_between(start, start)[0]
         now = datetime.fromisoformat(reminder["due_at"]) - timedelta(minutes=5)
@@ -91,10 +91,10 @@ class CabinetStoreTests(unittest.TestCase):
         self.assertEqual(history[0]["name"], "Dose medicine")
         self.assertEqual(self.store.list_medicines()[0]["id"], medicine_id)
 
-    def test_invalid_alarm_does_not_create_medicine(self):
+    def test_invalid_in_app_dose_schedule_does_not_create_medicine(self):
         today = date.today()
         invalid_schedules = (
-            (today, today, [], "at least one alarm time"),
+            (today, today, [], "at least one dose time"),
             (today, today, ["25:00"], "24-hour HH:MM"),
             (today, today - timedelta(days=1), ["08:00"], "cannot be before"),
         )
@@ -102,11 +102,11 @@ class CabinetStoreTests(unittest.TestCase):
             with self.subTest(start=start, end=end, times=times):
                 with self.assertRaisesRegex(ValueError, error):
                     self.store.add_medicine(
-                        "Invalid alarm",
+                        "Invalid schedule",
                         1,
-                        alarm_start_date=start.isoformat(),
-                        alarm_end_date=end.isoformat(),
-                        alarm_times=times,
+                        schedule_start_date=start.isoformat(),
+                        schedule_end_date=end.isoformat(),
+                        schedule_times=times,
                     )
         self.assertEqual(self.store.list_medicines(), [])
 

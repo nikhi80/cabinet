@@ -8,12 +8,24 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Generator
+
+
+def account_database_path(user_data_dir: str | Path, uid: str) -> Path:
+    safe_uid = uid.strip()
+    if not safe_uid:
+        raise ValueError("Account id is required.")
+    if any(
+        character
+        not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        for character in safe_uid
+    ):
+        raise ValueError("Account id contains an invalid character.")
+    return Path(user_data_dir) / "accounts" / safe_uid / "cabinet.sqlite3"
 
 
 class CabinetStore:
@@ -202,34 +214,34 @@ class CabinetStore:
         form: str = "",
         expiry_date: str = "",
         notes: str = "",
-        alarm_start_date: str = "",
-        alarm_end_date: str = "",
-        alarm_times: list[str] | None = None,
+        schedule_start_date: str = "",
+        schedule_end_date: str = "",
+        schedule_times: list[str] | None = None,
     ) -> int:
         name = self._required_text(name, "Medicine name")
         quantity_value = self._nonnegative_int(quantity, "Quantity")
         threshold = self._nonnegative_int(low_stock_threshold, "Low-stock alert")
         expiry = self._validate_optional_date(expiry_date, "Expiry date")
-        alarm_schedule = None
-        if alarm_times is not None:
+        schedule = None
+        if schedule_times is not None:
             start_date = self._validate_optional_date(
-                alarm_start_date, "Alarm start date"
+                schedule_start_date, "Schedule start date"
             )
             end_date = self._validate_optional_date(
-                alarm_end_date, "Alarm end date"
+                schedule_end_date, "Schedule end date"
             )
             if not start_date or not end_date:
-                raise ValueError("Enter both a start date and an end date for the alarm.")
+                raise ValueError("Enter both a start date and an end date for the schedule.")
             start = date.fromisoformat(start_date)
             end = date.fromisoformat(end_date)
             if start < date.today():
-                raise ValueError("Alarm start date cannot be in the past.")
+                raise ValueError("Schedule start date cannot be in the past.")
             if end < start:
-                raise ValueError("Alarm end date cannot be before its start date.")
+                raise ValueError("Schedule end date cannot be before its start date.")
             if (end - start).days >= 3650:
-                raise ValueError("Medicine alarms can be scheduled for up to 10 years.")
-            times = self._validated_alarm_times(alarm_times)
-            alarm_schedule = (start_date, end_date, times)
+                raise ValueError("Dose schedules can be created for up to 10 years.")
+            times = self._validated_schedule_times(schedule_times)
+            schedule = (start_date, end_date, times)
         now = self._now()
         with self._connect() as connection:
             cursor = connection.execute(
@@ -256,19 +268,19 @@ class CabinetStore:
                    VALUES (?, ?, ?, ?, ?)""",
                 (medicine_id, quantity_value, quantity_value, "Initial stock", now),
             )
-            if alarm_schedule is not None:
-                self._create_medicine_alarm_schedule(
-                    connection, medicine_id, *alarm_schedule, now=now
+            if schedule is not None:
+                self._create_in_app_dose_schedule(
+                    connection, medicine_id, *schedule, now=now
                 )
             return medicine_id
 
     @staticmethod
-    def _create_medicine_alarm_schedule(
+    def _create_in_app_dose_schedule(
         connection: sqlite3.Connection,
         medicine_id: int,
         start_date: str,
         end_date: str,
-        reminder_times: list[str],
+        schedule_times: list[str],
         *,
         now: str,
     ) -> None:
@@ -276,15 +288,15 @@ class CabinetStore:
             """INSERT INTO medicine_alarm_schedules
                (medicine_id, start_date, end_date, reminder_times)
                VALUES (?, ?, ?, ?)""",
-            (medicine_id, start_date, end_date, json.dumps(reminder_times)),
+            (medicine_id, start_date, end_date, json.dumps(schedule_times)),
         )
         schedule_id = int(cursor.lastrowid)
         current_date = date.fromisoformat(start_date)
         final_date = date.fromisoformat(end_date)
         reminder_count = 0
         while current_date <= final_date:
-            for reminder_time in reminder_times:
-                due_at = f"{current_date.isoformat()}T{reminder_time}:00"
+            for schedule_time in schedule_times:
+                due_at = f"{current_date.isoformat()}T{schedule_time}:00"
                 if due_at >= now:
                     connection.execute(
                         """INSERT INTO medicine_alarm_reminders
@@ -295,26 +307,26 @@ class CabinetStore:
                     reminder_count += 1
             current_date += timedelta(days=1)
         if reminder_count == 0:
-            raise ValueError("Choose an alarm time that is still in the future.")
+            raise ValueError("Choose a dose time that is still in the future.")
 
     @staticmethod
-    def _validated_alarm_times(values: list[str]) -> list[str]:
+    def _validated_schedule_times(values: list[str]) -> list[str]:
         times = sorted(value.strip() for value in values if value.strip())
         if not times:
-            raise ValueError("Enter at least one alarm time.")
+            raise ValueError("Enter at least one dose time.")
         if len(times) > 8:
-            raise ValueError("Add no more than 8 alarm times per day.")
+            raise ValueError("Add no more than 8 dose times per day.")
         for value in times:
             try:
                 parsed = datetime.strptime(value, "%H:%M")
             except ValueError as error:
                 raise ValueError(
-                    "Alarm times must use 24-hour HH:MM format."
+                    "Dose times must use 24-hour HH:MM format."
                 ) from error
             if parsed.strftime("%H:%M") != value:
-                raise ValueError("Alarm times must use 24-hour HH:MM format.")
+                raise ValueError("Dose times must use 24-hour HH:MM format.")
         if len(set(times)) != len(times):
-            raise ValueError("Alarm times must be different.")
+            raise ValueError("Dose times must be different.")
         return times
 
     def update_medicine(self, medicine_id: int, **values: Any) -> None:
@@ -418,369 +430,6 @@ class CabinetStore:
                 tuple(f"%{search.strip()}%" for _ in range(3)),
             ).fetchall()
             return [dict(row) for row in rows]
-
-    @staticmethod
-    def _normalize_medicine_part(value: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "", value.casefold())
-
-    @classmethod
-    def _prescription_item_key(cls, item: dict[str, Any]) -> tuple[str, ...]:
-        return (
-            cls._normalize_medicine_part(str(item.get("name", ""))),
-            cls._normalize_medicine_part(str(item.get("strength", ""))),
-            " ".join(str(item.get("dose", "")).casefold().split()),
-            " ".join(str(item.get("frequency", "")).casefold().split()),
-            " ".join(str(item.get("instructions", "")).casefold().split()),
-            str(item.get("start_date", "")),
-            str(item.get("duration_days", "")),
-            str(item.get("prescribed_quantity") or ""),
-        )
-
-    def matching_medicines(self, name: str, strength: str = "") -> list[dict[str, Any]]:
-        normalized_name = self._normalize_medicine_part(name)
-        normalized_strength = self._normalize_medicine_part(strength)
-        return [
-            medicine
-            for medicine in self.list_medicines()
-            if self._normalize_medicine_part(medicine["name"]) == normalized_name
-            and self._normalize_medicine_part(medicine["strength"])
-            == normalized_strength
-        ]
-
-    @staticmethod
-    def _validated_reminder_times(values: list[str], frequency: str) -> list[str]:
-        frequency_text = re.sub(
-            r"\b(?:a day|per day)\b", "daily", frequency.casefold()
-        )
-        counts = {
-            "once daily": 1,
-            "twice daily": 2,
-            "three times daily": 3,
-            "four times daily": 4,
-        }
-        expected_count = counts.get(frequency_text)
-        if expected_count is None:
-            numeric_daily = re.fullmatch(
-                r"(\d+)\s+times?\s+daily", frequency_text
-            )
-            if numeric_daily:
-                expected_count = int(numeric_daily.group(1))
-        if expected_count is None:
-            every_hours = re.fullmatch(r"every\s+(\d+)\s+hours?", frequency_text)
-            if every_hours:
-                interval = int(every_hours.group(1))
-                if interval > 0 and 24 % interval == 0:
-                    expected_count = 24 // interval
-        if expected_count is None:
-            raise ValueError(
-                "Use a clear frequency (once, twice, three times, or four times daily; "
-                "or every N hours when it divides evenly into 24)."
-            )
-        times = [value.strip() for value in values if value.strip()]
-        if len(times) != expected_count:
-            raise ValueError(
-                f"Enter exactly {expected_count} local reminder time(s) for this frequency."
-            )
-        for value in times:
-            try:
-                parsed = datetime.strptime(value, "%H:%M")
-            except ValueError as error:
-                raise ValueError("Reminder times must use 24-hour HH:MM format.") from error
-            if parsed.strftime("%H:%M") != value:
-                raise ValueError("Reminder times must use 24-hour HH:MM format.")
-        if len(set(times)) != len(times):
-            raise ValueError("Reminder times must be different.")
-        every_hours = re.fullmatch(r"every\s+(\d+)\s+hours?", frequency_text)
-        if every_hours:
-            interval_minutes = int(every_hours.group(1)) * 60
-            minute_of_day = [
-                int(value[:2]) * 60 + int(value[3:]) for value in times
-            ]
-            intervals = [
-                (minute_of_day[(index + 1) % len(minute_of_day)] - minute) % 1440
-                for index, minute in enumerate(minute_of_day)
-            ]
-            intervals = [interval or 1440 for interval in intervals]
-            if any(interval != interval_minutes for interval in intervals):
-                raise ValueError(
-                    f"Reminder times must be {every_hours.group(1)} hours apart "
-                    "for this confirmed frequency."
-                )
-        return sorted(times)
-
-    def confirm_prescription(
-        self,
-        items: list[dict[str, Any]],
-        fingerprint: str,
-        ocr_text: str = "",
-        image_hash: str = "",
-    ) -> dict[str, Any]:
-        if not items:
-            raise ValueError("Add or confirm at least one medicine.")
-        if not fingerprint.strip():
-            raise ValueError("Prescription fingerprint is required.")
-
-        prepared: list[dict[str, Any]] = []
-        for item in items:
-            if not item.get("confirmed"):
-                raise ValueError("Confirm each medicine's details before saving.")
-            name = self._required_text(item.get("name", ""), "Medicine name")
-            dose = self._required_text(item.get("dose", ""), "Dose per intake")
-            frequency = self._required_text(item.get("frequency", ""), "Frequency")
-            start_date = self._validate_optional_date(
-                item.get("start_date", ""), "Start date"
-            )
-            if item.get("create_reminders"):
-                if not start_date:
-                    raise ValueError(
-                        f"Enter a confirmed start date for {name} before creating reminders."
-                    )
-                try:
-                    duration_days = int(item.get("duration_days", ""))
-                except (TypeError, ValueError) as error:
-                    raise ValueError(
-                        f"Enter the prescribed duration in days for {name}."
-                    ) from error
-                if not 1 <= duration_days <= 3650:
-                    raise ValueError(
-                        f"Duration for {name} must be between 1 and 3650 days."
-                    )
-                times = self._validated_reminder_times(
-                    item.get("reminder_times", []), frequency
-                )
-            else:
-                duration_days = int(item.get("duration_days") or 0)
-                times = []
-            if start_date and duration_days:
-                end_date = (
-                    date.fromisoformat(start_date)
-                    + timedelta(days=duration_days - 1)
-                ).isoformat()
-            else:
-                end_date = ""
-            prescribed_quantity = item.get("prescribed_quantity")
-            if prescribed_quantity not in (None, ""):
-                prescribed_quantity = self._nonnegative_int(
-                    prescribed_quantity, "Prescribed quantity"
-                )
-            else:
-                prescribed_quantity = None
-            purchased_quantity = item.get("purchased_quantity")
-            if purchased_quantity not in (None, ""):
-                purchased_quantity = self._nonnegative_int(
-                    purchased_quantity, "Purchased quantity"
-                )
-            else:
-                purchased_quantity = 0
-            if item.get("purchased") and purchased_quantity <= 0:
-                raise ValueError(
-                    f"Enter how many {name} units were purchased; prescribed quantity "
-                    "is not assumed to be in stock."
-                )
-            if not item.get("purchased") and purchased_quantity:
-                raise ValueError(
-                    f"Mark {name} as purchased before adding purchased quantity to stock."
-                )
-
-            inventory_id = item.get("inventory_id")
-            if inventory_id:
-                try:
-                    inventory_id = int(inventory_id)
-                except (TypeError, ValueError) as error:
-                    raise ValueError("Selected inventory record is invalid.") from error
-                with self._connect() as connection:
-                    existing = connection.execute(
-                        "SELECT name, strength FROM medicines WHERE id = ?",
-                        (inventory_id,),
-                    ).fetchone()
-                if existing is None:
-                    raise ValueError("Selected medicine inventory record no longer exists.")
-                if (
-                    self._normalize_medicine_part(existing["name"])
-                    != self._normalize_medicine_part(name)
-                    or self._normalize_medicine_part(existing["strength"])
-                    != self._normalize_medicine_part(item.get("strength", ""))
-                ):
-                    raise ValueError(
-                        "Selected inventory record does not match the confirmed name and strength."
-                    )
-            prepared.append(
-                {
-                    **item,
-                    "name": name,
-                    "strength": str(item.get("strength", "")).strip(),
-                    "dose": dose,
-                    "frequency": frequency,
-                    "instructions": str(item.get("instructions", "")).strip(),
-                    "start_date": start_date,
-                    "duration_days": duration_days,
-                    "end_date": end_date,
-                    "prescribed_quantity": prescribed_quantity,
-                    "purchased_quantity": purchased_quantity,
-                    "inventory_id": inventory_id,
-                    "reminder_times": times,
-                }
-            )
-
-        now_datetime = datetime.now().replace(microsecond=0)
-        now = now_datetime.isoformat(timespec="seconds")
-
-        def create_schedule(
-            connection: sqlite3.Connection,
-            item_id: int,
-            item: dict[str, Any],
-        ) -> None:
-            schedule_cursor = connection.execute(
-                """INSERT INTO medicine_schedules
-                   (prescription_item_id, start_date, end_date, reminder_times)
-                   VALUES (?, ?, ?, ?)""",
-                (
-                    item_id,
-                    item["start_date"],
-                    item["end_date"],
-                    json.dumps(item["reminder_times"]),
-                ),
-            )
-            schedule_id = int(schedule_cursor.lastrowid)
-            schedule_date = max(
-                date.fromisoformat(item["start_date"]),
-                now_datetime.date(),
-            )
-            final_date = date.fromisoformat(item["end_date"])
-            while schedule_date <= final_date:
-                for reminder_time in item["reminder_times"]:
-                    due_at = f"{schedule_date.isoformat()}T{reminder_time}:00"
-                    if due_at < now:
-                        continue
-                    connection.execute(
-                        """INSERT INTO dose_reminders
-                           (schedule_id, due_at, updated_at)
-                           VALUES (?, ?, ?)""",
-                        (schedule_id, due_at, now),
-                    )
-                schedule_date += timedelta(days=1)
-
-        with self._connect() as connection:
-            duplicate = connection.execute(
-                "SELECT id FROM prescriptions WHERE fingerprint = ?",
-                (fingerprint,),
-            ).fetchone()
-            if duplicate is not None:
-                prescription_id = int(duplicate["id"])
-                existing_items = list(
-                    connection.execute(
-                        "SELECT * FROM prescription_items WHERE prescription_id = ?",
-                        (prescription_id,),
-                    ).fetchall()
-                )
-                reminders_added = False
-                for item in prepared:
-                    if not item["create_reminders"]:
-                        continue
-                    key = self._prescription_item_key(item)
-                    existing_item = next(
-                        (
-                            row
-                            for row in existing_items
-                            if self._prescription_item_key(dict(row)) == key
-                        ),
-                        None,
-                    )
-                    if existing_item is None:
-                        raise ValueError(
-                            "Cabinet found the prescription but couldn't match its "
-                            "confirmed medicine details."
-                        )
-                    existing_items.remove(existing_item)
-                    schedule = connection.execute(
-                        """SELECT id FROM medicine_schedules
-                           WHERE prescription_item_id = ?""",
-                        (existing_item["id"],),
-                    ).fetchone()
-                    if schedule is not None:
-                        continue
-                    connection.execute(
-                        "UPDATE prescription_items SET reminder_times = ? WHERE id = ?",
-                        (json.dumps(item["reminder_times"]), existing_item["id"]),
-                    )
-                    create_schedule(connection, int(existing_item["id"]), item)
-                    reminders_added = True
-                return {
-                    "duplicate": True,
-                    "prescription_id": prescription_id,
-                    "reminders_added": reminders_added,
-                }
-
-            cursor = connection.execute(
-                """INSERT INTO prescriptions
-                   (fingerprint, image_hash, ocr_text, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (fingerprint, image_hash, ocr_text, now),
-            )
-            prescription_id = int(cursor.lastrowid)
-            item_ids: list[int] = []
-            for item in prepared:
-                medicine_id = item["inventory_id"]
-                if medicine_id is None:
-                    inventory_cursor = connection.execute(
-                        """INSERT INTO medicines
-                           (name, strength, quantity, created_at, updated_at)
-                           VALUES (?, ?, 0, ?, ?)""",
-                        (item["name"], item["strength"], now, now),
-                    )
-                    medicine_id = int(inventory_cursor.lastrowid)
-                    connection.execute(
-                        """INSERT INTO stock_history
-                           (medicine_id, change_amount, quantity_after, note, changed_at)
-                           VALUES (?, 0, 0, 'Added from confirmed prescription; stock not purchased',
-                                   ?)""",
-                        (medicine_id, now),
-                    )
-                if item["purchased_quantity"]:
-                    current = connection.execute(
-                        "SELECT quantity FROM medicines WHERE id = ?", (medicine_id,)
-                    ).fetchone()
-                    new_quantity = int(current["quantity"]) + item["purchased_quantity"]
-                    connection.execute(
-                        "UPDATE medicines SET quantity = ?, updated_at = ? WHERE id = ?",
-                        (new_quantity, now, medicine_id),
-                    )
-                    connection.execute(
-                        """INSERT INTO stock_history
-                           (medicine_id, change_amount, quantity_after, note, changed_at)
-                           VALUES (?, ?, ?, 'Purchased from confirmed prescription', ?)""",
-                        (medicine_id, item["purchased_quantity"], new_quantity, now),
-                    )
-                item_cursor = connection.execute(
-                    """INSERT INTO prescription_items
-                       (prescription_id, medicine_id, name, strength, dose, frequency,
-                        instructions, start_date, duration_days, end_date,
-                        prescribed_quantity, reminder_times)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        prescription_id,
-                        medicine_id,
-                        item["name"],
-                        item["strength"],
-                        item["dose"],
-                        item["frequency"],
-                        item["instructions"],
-                        item["start_date"],
-                        item["duration_days"],
-                        item["end_date"],
-                        item["prescribed_quantity"],
-                        json.dumps(item["reminder_times"]),
-                    ),
-                )
-                item_id = int(item_cursor.lastrowid)
-                item_ids.append(item_id)
-                if item["create_reminders"]:
-                    create_schedule(connection, item_id, item)
-            return {
-                "duplicate": False,
-                "prescription_id": prescription_id,
-                "item_ids": item_ids,
-            }
 
     def list_prescription_items(self) -> list[dict[str, Any]]:
         with self._connect() as connection:

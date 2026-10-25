@@ -1,4 +1,4 @@
-"""Five-step first-run setup for Cabinet."""
+"""Four-step first-run setup for Cabinet."""
 
 from __future__ import annotations
 
@@ -15,13 +15,7 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
-from cabinet.preferences import (
-    GENDER_OPTIONS,
-    format_date_of_birth_input,
-    save_setup_preferences,
-    validate_date_of_birth,
-    validate_gender,
-)
+from cabinet.preferences import save_setup_preferences
 
 
 def _rgba(hex_color):
@@ -68,7 +62,6 @@ class ProgressSegment(Widget):
 class SetupScreen(Screen):
     STEP_TITLES = (
         "About you",
-        "Personalize",
         "Your health tools",
         "Preferences",
         "All set",
@@ -79,28 +72,19 @@ class SetupScreen(Screen):
         self.app = app
         self.step = 0
         self.display_name = ""
-        self.date_of_birth = ""
-        self.gender = "Prefer not to say"
         self.profile_error = ""
-        self.features = {"medicines": True, "vaccines": True, "cycle": False}
-        self.reminders = False
+        self.features = {"medicines": True, "vaccines": True}
         self.household = ""
         self.return_to_settings = False
         self._render()
 
     def load_preferences(self, store):
         self.display_name = store.get_setting("display_name", "")
-        self.date_of_birth = store.get_setting("date_of_birth", "")
-        self.gender = store.get_setting("gender", "Prefer not to say")
-        if self.gender not in GENDER_OPTIONS:
-            self.gender = "Prefer not to say"
         self.profile_error = ""
         self.features = {
             "medicines": store.get_setting("feature_medicines", "true") == "true",
             "vaccines": store.get_setting("feature_vaccines", "true") == "true",
-            "cycle": store.get_setting("feature_cycle", "false") == "true",
         }
-        self.reminders = store.get_setting("reminders_enabled", "false") == "true"
         self.household = store.get_setting("household_name", "")
         self.step = 0
         self.return_to_settings = True
@@ -108,11 +92,8 @@ class SetupScreen(Screen):
 
     def start_new(self, display_name=""):
         self.display_name = display_name
-        self.date_of_birth = ""
-        self.gender = "Prefer not to say"
         self.profile_error = ""
-        self.features = {"medicines": True, "vaccines": True, "cycle": False}
-        self.reminders = False
+        self.features = {"medicines": True, "vaccines": True}
         self.household = ""
         self.step = 0
         self.return_to_settings = False
@@ -120,7 +101,7 @@ class SetupScreen(Screen):
 
     def _render(self):
         palette = self.app.palette
-        is_completion = self.step == 4
+        is_completion = self.step == 3
         self.clear_widgets()
         outer = BoxLayout(orientation="vertical", padding=(dp(22), dp(20)), spacing=dp(12))
         if is_completion:
@@ -145,7 +126,7 @@ class SetupScreen(Screen):
         )
         outer.add_widget(
             Label(
-                text=f"Step {self.step + 1} of 5 · {self.STEP_TITLES[self.step]}",
+                text=f"Step {self.step + 1} of 4 · {self.STEP_TITLES[self.step]}",
                 size_hint_y=None,
                 height=dp(36 if is_completion else 32),
                 font_size=dp(23 if is_completion else 21),
@@ -155,7 +136,7 @@ class SetupScreen(Screen):
             )
         )
         track = BoxLayout(size_hint_y=None, height=dp(5), spacing=dp(4))
-        for index in range(5):
+        for index in range(4):
             track.add_widget(ProgressSegment(
                 (COMPLETION["progress"] if is_completion else palette["gold"])
                 if index <= self.step
@@ -213,7 +194,7 @@ class SetupScreen(Screen):
             buttons.add_widget(self._button("Cancel", self.cancel, False, is_completion))
         if self.step > 0:
             buttons.add_widget(self._button("Back", self.previous, False, is_completion))
-        if self.step < 4:
+        if self.step < 3:
             buttons.add_widget(self._button("Continue", self.next_step, True))
         else:
             buttons.add_widget(self._button("Go to Cabinet", self.finish, True, True))
@@ -288,33 +269,6 @@ class SetupScreen(Screen):
         )
         return field
 
-    def _format_dob_input(self, field, value):
-        if getattr(self, "_formatting_dob", False):
-            return
-        formatted = format_date_of_birth_input(value)
-        if formatted == value:
-            return
-
-        column = field.cursor[0]
-        digits_before_cursor = sum(
-            "0" <= character <= "9" for character in value[:column]
-        )
-        cursor_column = 0
-        digits_seen = 0
-        while cursor_column < len(formatted) and digits_seen < digits_before_cursor:
-            if "0" <= formatted[cursor_column] <= "9":
-                digits_seen += 1
-            cursor_column += 1
-        if cursor_column in (4, 7) and cursor_column < len(formatted):
-            cursor_column += 1
-
-        self._formatting_dob = True
-        try:
-            field.text = formatted
-            field.cursor = (cursor_column, field.cursor[1])
-        finally:
-            self._formatting_dob = False
-
     def _button(self, text, callback, primary=False, completion=False):
         if completion:
             button = Button(
@@ -371,44 +325,15 @@ class SetupScreen(Screen):
             content.add_widget(self._label("DISPLAY NAME", 10, self.app.palette["muted"], True))
             self.name_input = self._input("Your name", self.display_name)
             content.add_widget(self.name_input)
-            content.add_widget(
-                self._label("DATE OF BIRTH", 10, self.app.palette["muted"], True)
-            )
-            self.dob_input = self._input(
-                "YYYY-MM-DD",
-                format_date_of_birth_input(self.date_of_birth),
-            )
-            self.dob_input.bind(text=self._format_dob_input)
-            content.add_widget(self.dob_input)
-            content.add_widget(
-                self._label(
-                    "Your birth date is used only to calculate age for the optional Menstruation tab. It stays in this account's local profile."
-                )
-            )
             if self.profile_error:
                 content.add_widget(
                     self._label(self.profile_error, 12, self.app.palette["danger"])
                 )
         elif self.step == 1:
-            content.add_widget(self._label("Choose a gender option."))
-            content.add_widget(
-                self._label(
-                    "The Menstruation tab appears for Female profiles aged 12 or older. The tracker itself is optional and can be enabled later in Settings. Changing gender or date of birth may change tab visibility, but never deletes records."
-                )
-            )
-            for choice in GENDER_OPTIONS:
-                self._choice(
-                    content,
-                    choice,
-                    self.gender == choice,
-                    lambda value=choice: self._set_gender(value),
-                )
-        elif self.step == 2:
             content.add_widget(self._label("Choose the tools you'd like to use."))
             options = (
                 ("medicines", "Household medicine inventory"),
                 ("vaccines", "Vaccine tracker"),
-                ("cycle", "Menstruation tracker (optional)"),
             )
             for key, title in options:
                 self._choice(
@@ -417,18 +342,7 @@ class SetupScreen(Screen):
                     self.features[key],
                     lambda name=key: self._toggle_feature(name),
                 )
-            content.add_widget(
-                self._label(
-                    "This private tracker is opt-in. Profile details never enable it automatically, and hiding its tab never deletes its records."
-                )
-            )
-            self._choice(
-                content,
-                "Medicine dose notifications",
-                self.reminders,
-                self._toggle_reminders,
-            )
-        elif self.step == 3:
+        elif self.step == 2:
             content.add_widget(self._label("Make a few finishing choices."))
             content.add_widget(self._label("THEME", 10, self.app.palette["muted"], True))
             for theme in ("light", "dark"):
@@ -443,7 +357,7 @@ class SetupScreen(Screen):
             content.add_widget(self.household_input)
             content.add_widget(
                 self._label(
-                    "You can update your feature and reminder preferences later in Settings."
+                    "You can update your inventory and vaccine preferences later in Settings."
                 )
             )
         else:
@@ -460,42 +374,27 @@ class SetupScreen(Screen):
                 )
             )
 
-    def _set_gender(self, value):
-        self.gender = value
-        self._render()
-
     def _toggle_feature(self, name):
         self.features[name] = not self.features[name]
-        self._render()
-
-    def _toggle_reminders(self):
-        self.reminders = not self.reminders
         self._render()
 
     def next_step(self):
         if self.step == 0:
             display_name = self.name_input.text.strip()
-            date_of_birth = self.dob_input.text.strip()
-            try:
-                if not display_name:
-                    raise ValueError("Enter a name or preferred display name.")
-                validate_date_of_birth(date_of_birth)
-            except ValueError as error:
-                self.profile_error = str(error)
+            if not display_name:
+                self.profile_error = "Enter a name or preferred display name."
                 self._render()
                 return
             self.display_name = display_name
-            self.date_of_birth = date_of_birth
             self.profile_error = ""
-        elif self.step == 3:
+        elif self.step == 2:
             self.household = self.household_input.text.strip()
-        self.step = min(4, self.step + 1)
+        self.step = min(3, self.step + 1)
         self._render()
 
     def previous(self):
         if self.step == 1:
             self.display_name = self.name_input.text.strip() if hasattr(self, "name_input") else self.display_name
-            self.date_of_birth = self.dob_input.text.strip() if hasattr(self, "dob_input") else self.date_of_birth
         self.step = max(0, self.step - 1)
         self._render()
 
@@ -503,57 +402,23 @@ class SetupScreen(Screen):
         store = self.app.store
         settings = {
             "display_name": self.display_name,
-            "date_of_birth": self.date_of_birth,
-            "gender": self.gender,
             "feature_medicines": str(self.features["medicines"]).lower(),
             "feature_vaccines": str(self.features["vaccines"]).lower(),
-            "feature_cycle": str(self.features["cycle"]).lower(),
-            "reminders_enabled": str(self.reminders).lower(),
             "household_name": self.household,
             "setup_complete": "true",
         }
-        try:
-            validated_profile = {
-                "display_name": settings["display_name"],
-                "date_of_birth": validate_date_of_birth(settings["date_of_birth"]),
-                "gender": validate_gender(settings["gender"]),
-            }
-        except ValueError as error:
-            self.profile_error = str(error)
-            self.step = 0
-            self._render()
-            return
 
         existing_profile = store.get_setting("setup_complete", "false") == "true"
-        profile_changed = any(
-            store.get_setting(key, "") != value
-            for key, value in validated_profile.items()
+        profile_changed = (
+            store.get_setting("display_name", "") != settings["display_name"]
         )
         if existing_profile and profile_changed:
-            self._confirm_profile_update(settings, validated_profile)
+            self._confirm_profile_update(settings)
             return
         self._save_setup(settings)
 
-    def _confirm_profile_update(self, settings, validated_profile):
-        old_gender = self.app.store.get_setting("gender", "")
-        old_date_of_birth = self.app.store.get_setting("date_of_birth", "")
-        eligibility_changed = (
-            old_gender != validated_profile["gender"]
-            or old_date_of_birth != validated_profile["date_of_birth"]
-        )
-        message = "Save these profile changes?"
-        if eligibility_changed:
-            tracker_enabled = self.app.store.get_setting("feature_cycle", "false") == "true"
-            message += (
-                "\n\nChanging gender or date of birth may show or hide the "
-                "Menstruation tab. The tracker setting remains "
-                f"{'enabled' if tracker_enabled else 'disabled'} and no records are deleted."
-            )
-            if settings["feature_cycle"] != str(tracker_enabled).lower():
-                message += (
-                    f"\n\nThis setup also changes the optional tracker to "
-                    f"{'enabled' if settings['feature_cycle'] == 'true' else 'disabled'}."
-                )
+    def _confirm_profile_update(self, settings):
+        message = "Save this profile name change?"
         content = BoxLayout(
             orientation="vertical", padding=dp(14), spacing=dp(10)
         )
@@ -570,7 +435,7 @@ class SetupScreen(Screen):
             title="Confirm profile update",
             content=content,
             size_hint=(0.9, None),
-            height=dp(250),
+            height=dp(210),
         )
         buttons.add_widget(self._button("Cancel", popup.dismiss))
         buttons.add_widget(
@@ -589,7 +454,6 @@ class SetupScreen(Screen):
             settings,
             confirm_profile_overwrite=popup is not None,
         )
-        self.app.set_reminders_enabled(self.reminders)
         if hasattr(self.app, "configure_navigation"):
             self.app.configure_navigation()
         if popup is not None:
