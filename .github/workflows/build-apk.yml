@@ -1,4 +1,4 @@
-
+```yaml
 name: Build Cabinet APK
 
 on:
@@ -46,10 +46,38 @@ jobs:
           python -m pip install --upgrade "pip<23" setuptools
           python -m pip install "cython==0.29.36" buildozer
 
+      - name: Check Android manifest configuration
+        working-directory: Cabinet
+        run: |
+          echo "Checking repository files for custom manifest arguments..."
+          grep -R -n \
+            --exclude-dir=.git \
+            --exclude-dir=.buildozer \
+            --exclude-dir=bin \
+            -E 'extra-manifest-xml|extra-manifest-application-arguments|android\.extra_manifest_xml|android\.extra_manifest_application_arguments' \
+            . || true
+
       - name: Build Cabinet APK
         working-directory: Cabinet
         run: |
-          buildozer -v android debug
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Show manifest errors if build fails
+        if: failure()
+        working-directory: Cabinet
+        run: |
+          if [ -f build.log ]; then
+            echo "========== ANDROID MANIFEST / GRADLE ERRORS =========="
+            grep -n -B 10 -A 15 -E \
+              'ManifestMerger|Error parsing|AndroidManifest\.xml|ParseError|failed to parse|processDebugMainManifest|AAPT:|What went wrong:|FAILURE: Build failed' \
+              build.log || true
+
+            echo "========== LAST 150 LOG LINES =========="
+            tail -n 150 build.log
+          else
+            echo "build.log was not created."
+          fi
 
       - name: Upload APK
         if: success()
@@ -59,3 +87,4 @@ jobs:
           path: Cabinet/bin/*.apk
           if-no-files-found: error
           retention-days: 7
+```
